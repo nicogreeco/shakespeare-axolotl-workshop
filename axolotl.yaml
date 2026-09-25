@@ -1,0 +1,43 @@
+base_model: Qwen/Qwen2.5-1.5B-Instruct
+adapter: lora
+chat_template: tokenizer_default
+
+datasets:
+  - path: /workspace/data/workshop-llm/data/train.jsonl
+    type: chat_template
+    roles_to_train: [assistant]
+test_datasets:
+  - path: /workspace/data/workshop-llm/data/validation.jsonl
+    type: chat_template
+    roles_to_train: [assistant]
+train_on_inputs: false
+
+sequence_len: 1024
+micro_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 0.0002
+max_steps: 200
+seed: 42
+warmup_steps: 10
+eval_steps: 50
+logging_steps: 10
+save_steps: 200
+save_total_limit: 1
+
+bf16: true
+gradient_checkpointing: true
+optimizer: adamw_torch
+dataset_prepared_path: /workspace/prepared
+output_dir: /workspace/output
+
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
