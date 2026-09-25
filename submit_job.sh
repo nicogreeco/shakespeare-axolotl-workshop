@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=/mnt/filesystem-test/workshop-llm
-FILESYSTEM_ID=computefilesystem-e01qd5gs6d17fnmtet
-PROJECT_ID=${NEBIUS_PARENT_ID:-project-e01sbq2tpr00wr01f08fmk}
-SUBNET_ID=${NEBIUS_SUBNET_ID:-vpcsubnet-e01ttsem3j1wq4hm5t}
+ROOT=/mnt/hcls/workshop-llm
+FILESYSTEM_ID=computefilesystem-e00jp4z98aw5jyyyq4
+PROJECT_ID=${NEBIUS_PARENT_ID:-project-e00qv62ppr00qnw83re3az}
+SUBNET_ID=${NEBIUS_SUBNET_ID:-vpcsubnet-e00pemmjzw1rtz7nz0}
 IMAGE=docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1
 JOB_NAME="shakespeare-lora-$(date -u +%Y%m%d%H%M%S)"
 
@@ -18,10 +18,9 @@ options=(
   --name "$JOB_NAME"
   --parent-id "$PROJECT_ID"
   --image "$IMAGE"
-  --platform gpu-h200-sxm
-  --preset 1gpu-16vcpu-200gb
-  --disk-size 100Gi
-  --timeout 2h
+  --platform gpu-l40s-a
+  --preset 1gpu-16vcpu-64gb
+  --timeout 4h
   --volume "$FILESYSTEM_ID:/workspace/data"
   --subnet-id "$SUBNET_ID"
   --container-command bash
