@@ -38,7 +38,7 @@ nebius ai job create \
   --parent-id project-e01sbq2tpr00wr01f08fmk \
   --subnet-id vpcsubnet-e01ttsem3j1wq4hm5t \
   --image docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1 \
-  --platform gpu-l40s-a --preset 1gpu-8vcpu-32gb \
+  --platform gpu-h200-sxm --preset 1gpu-16vcpu-200gb \
   --disk-size 100Gi --timeout 2h \
   --volume computefilesystem-e01qd5gs6d17fnmtet:/workspace/data \
   --container-command bash \
@@ -61,6 +61,21 @@ cat runs/*/comparison.json
 ```
 
 Successful logs show training and validation loss through step 200. A completed run has `adapter_config.json`, adapter weights, and `comparison.json` in its `runs/<run-id>/` directory. The comparison uses three held-out prompts and the same system instruction for both models. Results may be modest after only 200 steps; this run first proves the pipeline works.
+
+## 4. Retry comparison without training again
+
+If training completed but the comparison script failed, run these commands **on the VM with the saved adapter**. The training job copies adapter files to the shared filesystem before starting comparison.
+
+```bash
+cd /mnt/filesystem-test/workshop-llm
+git pull
+ls -d runs/run-*/adapter
+RUN_ID=run-YYYYMMDDTHHMMSSZ-NNNN  # replace with a directory name from the previous command
+./submit_job.sh --compare-only "$RUN_ID" --dry-run
+./submit_job.sh --compare-only "$RUN_ID"
+```
+
+This starts a new, inference-only Nebius job. It reads `runs/$RUN_ID/adapter` and writes `runs/$RUN_ID/comparison.json`; it does not repeat the 200 training steps. Use the new job name printed by the launcher with `nebius ai logs <job-id>` to check completion.
 
 ## References
 

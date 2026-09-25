@@ -2,6 +2,18 @@
 set -euo pipefail
 
 ROOT=/workspace/data/workshop-llm
+if [[ "${1:-}" == --compare-only ]]; then
+  RUN_ID=${2:?Usage: run_job.sh --compare-only RUN_ID}
+  [[ "$RUN_ID" =~ ^run-[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]] || { echo "Invalid run ID: $RUN_ID" >&2; exit 2; }
+  RUN_DIR="$ROOT/runs/$RUN_ID"
+  test -s "$RUN_DIR/adapter/adapter_config.json" || { echo "Adapter missing: $RUN_DIR/adapter" >&2; exit 1; }
+  python3 "$ROOT/compare.py" \
+    --adapter "$RUN_DIR/adapter" \
+    --validation "$ROOT/data/validation.jsonl" \
+    --output "$RUN_DIR/comparison.json"
+  exit
+fi
+
 RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 RUN_DIR="$ROOT/runs/$RUN_ID"
 
