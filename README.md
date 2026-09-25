@@ -9,7 +9,7 @@ cd /mnt/filesystem-test/workshop-llm
 python3 prepare_data.py
 ```
 
-This downloads the pinned `shakespeare_unformatted.jsonl` from [chaseharmon/6.7960_Shakespeare](https://huggingface.co/datasets/chaseharmon/6.7960_Shakespeare), discards empty and duplicate `src`/`trg` pairs, and writes `data/train.jsonl` and `data/validation.jsonl`. The first 4,000 usable pairs train the model; the last 200 are held out, with a gap between them. Each row has `system`, `user`, and `assistant` messages. Only assistant tokens contribute to training loss.
+This downloads the pinned `shakespeare_unformatted.jsonl` from [chaseharmon/6.7960_Shakespeare](https://huggingface.co/datasets/chaseharmon/6.7960_Shakespeare), discards empty and duplicate `src`/`trg` pairs, and writes `data/train.jsonl` and `data/validation.jsonl`. The first 4,000 usable pairs train the model; the last 200 are held out, with a gap between them. Each row has only `user` and `assistant` messages; no system instruction is supplied. Only assistant tokens contribute to training loss.
 
 ## 2. Check and submit the job
 
@@ -60,7 +60,7 @@ ls -lh runs/*/adapter/
 cat runs/*/comparison.json
 ```
 
-Successful logs show training and validation loss through step 200. A completed run has `adapter_config.json`, adapter weights, and `comparison.json` in its `runs/<run-id>/` directory. The comparison uses three held-out prompts and the same system instruction for both models. Results may be modest after only 200 steps; this run first proves the pipeline works.
+Successful logs show training and validation loss through step 200. A completed run has `adapter_config.json`, adapter weights, and `comparison.json` in its `runs/<run-id>/` directory. The comparison uses three held-out prompts without a system instruction for either model. Results may be modest after only 200 steps; this run first proves the pipeline works. Retrain to get an adapter trained on the new prompt format; an existing adapter retains what it learned from the earlier system-prompted examples.
 
 ## 4. Retry comparison without training again
 

@@ -59,8 +59,8 @@ def main() -> None:
     for row, base, adapter in zip(rows, base_answers, adapter_answers):
         comparisons.append(
             {
-                "prompt": row["messages"][1]["content"],
-                "reference": row["messages"][2]["content"],
+                "prompt": row["messages"][-2]["content"],
+                "reference": row["messages"][-1]["content"],
                 "base": base,
                 "adapter": adapter,
             }

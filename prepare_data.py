@@ -15,10 +15,6 @@ SOURCE_URL = (
     "https://huggingface.co/datasets/chaseharmon/6.7960_Shakespeare/"
     f"resolve/{REVISION}/shakespeare_unformatted.jsonl"
 )
-SYSTEM_PROMPT = (
-    "You are a character in a Shakespeare play. Reply to the previous "
-    "speaker with only your next line of dialogue."
-)
 SOURCE_SHA256 = "d09f91f36fa59230e94519c15bb833a623b38e885de899eb0f420c37f6c8bf5d"
 TRAIN_COUNT = 4000
 VALIDATION_COUNT = 200
@@ -69,7 +65,6 @@ def write_messages(path: Path, pairs: list[tuple[str, str]]) -> None:
         for src, trg in pairs:
             row = {
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": src},
                     {"role": "assistant", "content": trg},
                 ]
