@@ -34,23 +34,23 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, torch_dtype=torch.bfloat16, device_map="auto"
+        MODEL_ID, dtype=torch.bfloat16, device_map="auto"
     ).eval()
     rows = sample_rows(args.validation)
 
     def generate(row: dict, current_model) -> str:
         messages = row["messages"][:-1]
         inputs = tokenizer.apply_chat_template(
-            messages, add_generation_prompt=True, return_tensors="pt"
+            messages, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt"
         ).to(next(current_model.parameters()).device)
         with torch.inference_mode():
             output = current_model.generate(
-                inputs,
+                **inputs,
                 do_sample=False,
                 max_new_tokens=96,
                 pad_token_id=tokenizer.eos_token_id,
             )
-        return tokenizer.decode(output[0, inputs.shape[-1] :], skip_special_tokens=True).strip()
+        return tokenizer.decode(output[0, inputs["input_ids"].shape[-1] :], skip_special_tokens=True).strip()
 
     base_answers = [generate(row, model) for row in rows]
     adapted = PeftModel.from_pretrained(model, str(args.adapter)).eval()
