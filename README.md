@@ -60,7 +60,7 @@ ls -lh runs/*/adapter/
 cat runs/*/comparison.json
 ```
 
-Successful logs show training and validation loss through step 200. A completed run has `adapter_config.json`, adapter weights, and `comparison.json` in its `runs/<run-id>/` directory. The comparison uses three held-out prompts without a system instruction for either model. Results may be modest after only 200 steps; this run first proves the pipeline works. Retrain to get an adapter trained on the new prompt format; an existing adapter retains what it learned from the earlier system-prompted examples.
+A completed run stores the adapter, `comparison.json`, `comparison.md`, `loss.csv`, and `loss.svg` under `/outputs/<group>/runs/<run-id>/`. The CSV contains `step`, `train_loss`, and `validation_loss`; the SVG plots both curves and marks the best validation-loss checkpoint. The comparison uses three held-out prompts without a system instruction for either model.
 
 ## 4. Retry comparison without training again
 
@@ -156,6 +156,60 @@ the existing `roles_to_train: [assistant]` and `train_on_inputs: false` settings
 only the converted assistant messages contribute to the loss. The automatic
 comparison sends the same held-out conversation prompt, without a character
 instruction, to both the base model and the LoRA model.
+
+## 6. Recommended training settings
+
+Use an epoch-based schedule for both dataset families. This makes the
+configuration easier to understand and avoids giving a small character dataset
+dozens of epochs just because it shares Shakespeare's `max_steps`.
+
+### Shakespeare
+
+The 4,000-example Shakespeare training set can start with four epochs:
+
+```yaml
+micro_batch_size: 4
+gradient_accumulation_steps: 8  # effective batch size: 32
+learning_rate: 0.0002
+num_epochs: 4
+warmup_ratio: 0.1
+
+eval_strategy: epoch
+save_strategy: epoch
+save_total_limit: 1
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+early_stopping_patience: 2
+```
+
+### Public-domain character
+
+Each character has only about 160--250 training examples. Use a smaller learning
+rate and effective batch size:
+
+```yaml
+micro_batch_size: 4
+gradient_accumulation_steps: 4  # effective batch size: 16
+learning_rate: 0.00005
+num_epochs: 5
+warmup_ratio: 0.1
+
+eval_strategy: epoch
+save_strategy: epoch
+save_total_limit: 1
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+early_stopping_patience: 2
+```
+
+Do not set `max_steps`, `warmup_steps`, `eval_steps`, or `save_steps` with
+these profiles. Validation and checkpointing happen at the end of every epoch.
+Early stopping ends training after two consecutive epoch evaluations without an
+improvement. The adapter copied to the run output is the checkpoint with the
+lowest validation loss; validation perplexity gives the same ranking because it
+is derived from that loss.
 
 ## References
 

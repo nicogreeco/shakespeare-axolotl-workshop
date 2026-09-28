@@ -9,6 +9,7 @@ OUTPUT_BUCKET_ID=${NEBIUS_OUTPUT_BUCKET_ID:-storagebucket-e003360829724144205545
 GROUP_ID=${WORKSHOP_GROUP_ID:-demo}
 RELEASE=${WORKSHOP_RELEASE:-v1}
 RUN_LABEL=${WORKSHOP_RUN_LABEL:-}
+CONFIG_PATH=${AXOLOTL_CONFIG_PATH:-$ROOT/axolotl.yaml}
 DISK_SIZE=${NEBIUS_DISK_SIZE:-100Gi}
 IMAGE=docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1
 [[ "$GROUP_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid group ID: $GROUP_ID" >&2; exit 2; }
@@ -18,7 +19,7 @@ IMAGE=docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1
 JOB_PREFIX=${RUN_LABEL:-shakespeare}
 JOB_NAME="$JOB_PREFIX-$GROUP_ID-$(date -u +%Y%m%d%H%M%S)"
 JOB_ARGS="-c \"bash /inputs/releases/$RELEASE/run_job.sh /config/axolotl.yaml /outputs/$GROUP_ID\""
-test -s "$ROOT/axolotl.yaml" || { echo "Missing $ROOT/axolotl.yaml" >&2; exit 1; }
+test -s "$CONFIG_PATH" || { echo "Missing config: $CONFIG_PATH" >&2; exit 1; }
 
 options=(
   --name "$JOB_NAME"
@@ -30,7 +31,7 @@ options=(
   --timeout 4h
   --volume "$INPUT_BUCKET_ID:/inputs:ro"
   --volume "$OUTPUT_BUCKET_ID:/outputs:rw"
-  --inject-file "$ROOT/axolotl.yaml:/config/axolotl.yaml"
+  --inject-file "$CONFIG_PATH:/config/axolotl.yaml"
   --subnet-id "$SUBNET_ID"
   --container-command bash
   --args "$JOB_ARGS"
@@ -44,6 +45,7 @@ fi
 
 printf 'Job name: %s\nProject ID: %s\nGroup: %s\nRun label: %s\nRelease: %s\nDisk size: %s\n' \
   "$JOB_NAME" "$PROJECT_ID" "$GROUP_ID" "${RUN_LABEL:-none}" "$RELEASE" "$DISK_SIZE"
+printf 'Config: %s\n' "$CONFIG_PATH"
 if [[ "${1:-}" == --dry-run ]]; then
   shift
   printf 'Local command preview (no job submitted):\n'

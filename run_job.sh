@@ -13,7 +13,8 @@ RUN_ID="run-${RUN_LABEL:+$RUN_LABEL-}$(date -u +%Y%m%dT%H%M%SZ)-$$"
 RUN_OUTPUT_DIR="$GROUP_OUTPUT_DIR/runs/$RUN_ID"
 ADAPTER_DIR="$RUN_OUTPUT_DIR/adapter"
 AXOLOTL_OUTPUT_DIR=/workspace/output
-COMPARE_SCRIPT="$(dirname "$0")/compare.py"
+SCRIPT_DIR="$(dirname "$0")"
+COMPARE_SCRIPT="$SCRIPT_DIR/compare.py"
 
 echo "Run ID: $RUN_ID"
 echo "Output directory: $RUN_OUTPUT_DIR"
@@ -28,6 +29,16 @@ cp "$CONFIG_PATH" "$RUN_OUTPUT_DIR/axolotl.yaml"
 
 echo "Starting Axolotl training..."
 axolotl train "$CONFIG_PATH"
+
+echo "Creating training loss artifacts..."
+if python3 "$SCRIPT_DIR/plot_losses.py" \
+  --input "$AXOLOTL_OUTPUT_DIR" \
+  --csv "$RUN_OUTPUT_DIR/loss.csv" \
+  --svg "$RUN_OUTPUT_DIR/loss.svg"; then
+  echo "Loss CSV and plot saved."
+else
+  echo "Warning: loss artifacts could not be created." >&2
+fi
 
 echo "Saving the trained adapter..."
 if [[ ! -s "$AXOLOTL_OUTPUT_DIR/adapter_config.json" ]]; then
