@@ -1,22 +1,22 @@
-base_model: Qwen/Qwen2.5-1.5B-Instruct
+base_model: Qwen/Qwen2.5-7B-Instruct
 adapter: lora
 chat_template: tokenizer_default
 
 datasets:
-  - path: /workspace/data/workshop-llm/data/train.jsonl
+  - path: /inputs/datasets/v1/train.jsonl
     type: chat_template
     roles_to_train: [assistant]
 test_datasets:
-  - path: /workspace/data/workshop-llm/data/validation.jsonl
+  - path: /inputs/datasets/v1/validation.jsonl
     type: chat_template
     roles_to_train: [assistant]
 train_on_inputs: false
 
 sequence_len: 1024
-micro_batch_size: 1
+micro_batch_size: 4
 gradient_accumulation_steps: 8
 learning_rate: 0.0002
-max_steps: 200
+max_steps: 500
 seed: 42
 warmup_steps: 10
 eval_steps: 50

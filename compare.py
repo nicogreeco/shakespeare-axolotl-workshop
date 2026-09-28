@@ -6,15 +6,20 @@ import json
 from pathlib import Path
 
 
-MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--adapter", type=Path, required=True)
-    parser.add_argument("--validation", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--markdown-output", type=Path)
     return parser.parse_args()
+
+
+def load_training_config(path: Path) -> tuple[str, Path]:
+    import yaml
+
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return config["base_model"], Path(config["test_datasets"][0]["path"])
 
 
 def sample_rows(path: Path) -> list[dict]:
@@ -27,16 +32,17 @@ def sample_rows(path: Path) -> list[dict]:
 
 def main() -> None:
     args = parse_args()
+    model_id, validation_path = load_training_config(args.config)
     # Imports stay here so --help works outside the Axolotl container.
     import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, dtype=torch.bfloat16, device_map="auto"
+        model_id, dtype=torch.bfloat16, device_map="auto"
     ).eval()
-    rows = sample_rows(args.validation)
+    rows = sample_rows(validation_path)
 
     def generate(row: dict, current_model) -> str:
         messages = row["messages"][:-1]
@@ -66,9 +72,22 @@ def main() -> None:
             }
         )
     args.output.write_text(json.dumps(comparisons, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if args.markdown_output:
+        sections = []
+        for index, item in enumerate(comparisons, start=1):
+            sections.append(
+                f"## Example {index}\n\n"
+                f"**Prompt:** {item['prompt']}\n\n"
+                f"**Reference:** {item['reference']}\n\n"
+                f"**Base model:** {item['base']}\n\n"
+                f"**LoRA adapter:** {item['adapter']}\n"
+            )
+        args.markdown_output.write_text("\n".join(sections), encoding="utf-8")
     for index, item in enumerate(comparisons, start=1):
         print(f"[{index}] Prompt: {item['prompt']}\n    Base: {item['base']}\n    LoRA: {item['adapter']}")
     print(f"Saved comparison: {args.output}")
+    if args.markdown_output:
+        print(f"Saved readable comparison: {args.markdown_output}")
 
 
 if __name__ == "__main__":
