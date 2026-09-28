@@ -1,0 +1,3 @@
+# DevLab notebook dependency
+# Training dependencies are provided by the Axolotl container image.
+openai>=1.30,<3
