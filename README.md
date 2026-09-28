@@ -159,23 +159,24 @@ instruction, to both the base model and the LoRA model.
 
 ## 6. Recommended training settings
 
-Use an epoch-based schedule for both dataset families. This makes the
-configuration easier to understand and avoids giving a small character dataset
-dozens of epochs just because it shares Shakespeare's `max_steps`.
+Use separate step-based schedules for the two dataset families. The small
+character datasets need far fewer steps than Shakespeare.
 
 ### Shakespeare
 
-The 4,000-example Shakespeare training set can start with four epochs:
+The 4,000-example Shakespeare training set can start with 500 steps:
 
 ```yaml
 micro_batch_size: 4
 gradient_accumulation_steps: 8  # effective batch size: 32
 learning_rate: 0.0002
-num_epochs: 4
-warmup_ratio: 0.1
+max_steps: 500
+warmup_steps: 10
 
-eval_strategy: epoch
-save_strategy: epoch
+eval_strategy: steps
+eval_steps: 125
+save_strategy: steps
+save_steps: 125
 save_total_limit: 1
 load_best_model_at_end: true
 metric_for_best_model: eval_loss
@@ -186,17 +187,20 @@ early_stopping_patience: 2
 ### Public-domain character
 
 Each character has only about 160--250 training examples. Use a smaller learning
-rate and effective batch size:
+rate and effective batch size. Start with 120 steps and let validation-based early
+stopping end the run if it stops improving:
 
 ```yaml
 micro_batch_size: 4
 gradient_accumulation_steps: 4  # effective batch size: 16
 learning_rate: 0.00005
-num_epochs: 5
-warmup_ratio: 0.1
+max_steps: 120
+warmup_steps: 8
 
-eval_strategy: epoch
-save_strategy: epoch
+eval_strategy: steps
+eval_steps: 15
+save_strategy: steps
+save_steps: 15
 save_total_limit: 1
 load_best_model_at_end: true
 metric_for_best_model: eval_loss
@@ -204,8 +208,9 @@ greater_is_better: false
 early_stopping_patience: 2
 ```
 
-Do not set `max_steps`, `warmup_steps`, `eval_steps`, or `save_steps` with
-these profiles. Validation and checkpointing happen at the end of every epoch.
+These profiles use integer step counts because this Axolotl version requires
+`eval_steps` and `save_steps` with early stopping. Keep the evaluation and save
+intervals equal so every evaluated checkpoint can become the best checkpoint.
 Early stopping ends training after two consecutive epoch evaluations without an
 improvement. The adapter copied to the run output is the checkpoint with the
 lowest validation loss; validation perplexity gives the same ranking because it
