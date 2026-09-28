@@ -1,50 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# Paths passed by the Nebius job command.
+CONFIG_PATH=${1:?Usage: run_job.sh CONFIG_PATH GROUP_OUTPUT_DIR}
+GROUP_OUTPUT_DIR=${2:?Usage: run_job.sh CONFIG_PATH GROUP_OUTPUT_DIR}
 
-if [[ "${1:-}" == --compare-only ]]; then
-  RUN_ID=${2:?Usage: run_job.sh --compare-only RUN_ID CONFIG OUTPUT_DIR}
-  CONFIG=${3:?Usage: run_job.sh --compare-only RUN_ID CONFIG OUTPUT_DIR}
-  OUTPUT_DIR=${4:?Usage: run_job.sh --compare-only RUN_ID CONFIG OUTPUT_DIR}
-  [[ "$RUN_ID" =~ ^run-[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]] || { echo "Invalid run ID: $RUN_ID" >&2; exit 2; }
-  RUN_DIR="$OUTPUT_DIR/runs/$RUN_ID"
-  test -s "$RUN_DIR/adapter/adapter_config.json" || { echo "Adapter missing: $RUN_DIR/adapter" >&2; exit 1; }
-  python3 "$SCRIPT_DIR/compare.py" \
-    --config "$CONFIG" \
-    --adapter "$RUN_DIR/adapter" \
-    --output "$RUN_DIR/comparison.json" \
-    --markdown-output "$RUN_DIR/comparison.md"
-  exit
-fi
-
-CONFIG=${1:?Usage: run_job.sh CONFIG OUTPUT_DIR}
-OUTPUT_DIR=${2:?Usage: run_job.sh CONFIG OUTPUT_DIR}
+# Each training run gets its own folder in the group's output directory.
 RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-RUN_DIR="$OUTPUT_DIR/runs/$RUN_ID"
+RUN_OUTPUT_DIR="$GROUP_OUTPUT_DIR/runs/$RUN_ID"
+ADAPTER_DIR="$RUN_OUTPUT_DIR/adapter"
+AXOLOTL_OUTPUT_DIR=/workspace/output
+COMPARE_SCRIPT="$(dirname "$0")/compare.py"
 
-test -s "$CONFIG"
-mkdir -p "$RUN_DIR/adapter"
-printf 'Run directory: %s\n' "$RUN_DIR"
-cp "$CONFIG" "$RUN_DIR/axolotl.yaml"
+echo "Run ID: $RUN_ID"
+echo "Output directory: $RUN_OUTPUT_DIR"
 
-axolotl train "$CONFIG"
-
-test -s /workspace/output/adapter_config.json
-cp /workspace/output/adapter_config.json "$RUN_DIR/adapter/"
-if [[ -s /workspace/output/adapter_model.safetensors ]]; then
-  cp /workspace/output/adapter_model.safetensors "$RUN_DIR/adapter/"
-elif [[ -s /workspace/output/adapter_model.bin ]]; then
-  cp /workspace/output/adapter_model.bin "$RUN_DIR/adapter/"
-else
-  echo 'Axolotl completed, but no adapter weights were found.' >&2
+if [[ ! -s "$CONFIG_PATH" ]]; then
+  echo "Config file not found or empty: $CONFIG_PATH" >&2
   exit 1
 fi
 
-python3 "$SCRIPT_DIR/compare.py" \
-  --config "$CONFIG" \
-  --adapter "$RUN_DIR/adapter" \
-  --output "$RUN_DIR/comparison.json" \
-  --markdown-output "$RUN_DIR/comparison.md"
-touch "$RUN_DIR/_SUCCESS"
-printf 'Adapter and comparison saved to %s\n' "$RUN_DIR"
+mkdir -p "$ADAPTER_DIR"
+cp "$CONFIG_PATH" "$RUN_OUTPUT_DIR/axolotl.yaml"
+
+echo "Starting Axolotl training..."
+axolotl train "$CONFIG_PATH"
+
+echo "Saving the trained adapter..."
+if [[ ! -s "$AXOLOTL_OUTPUT_DIR/adapter_config.json" ]]; then
+  echo "Adapter config not found in $AXOLOTL_OUTPUT_DIR" >&2
+  exit 1
+fi
+cp "$AXOLOTL_OUTPUT_DIR/adapter_config.json" "$ADAPTER_DIR/"
+
+if [[ -s "$AXOLOTL_OUTPUT_DIR/adapter_model.safetensors" ]]; then
+  cp "$AXOLOTL_OUTPUT_DIR/adapter_model.safetensors" "$ADAPTER_DIR/"
+elif [[ -s "$AXOLOTL_OUTPUT_DIR/adapter_model.bin" ]]; then
+  cp "$AXOLOTL_OUTPUT_DIR/adapter_model.bin" "$ADAPTER_DIR/"
+else
+  echo "Adapter weights not found in $AXOLOTL_OUTPUT_DIR" >&2
+  exit 1
+fi
+
+echo "Comparing the base model with the trained adapter..."
+python3 "$COMPARE_SCRIPT" \
+  --config "$CONFIG_PATH" \
+  --adapter "$ADAPTER_DIR" \
+  --output "$RUN_OUTPUT_DIR/comparison.json" \
+  --markdown-output "$RUN_OUTPUT_DIR/comparison.md"
+
+touch "$RUN_OUTPUT_DIR/_SUCCESS"
+echo "Training completed. Results saved to $RUN_OUTPUT_DIR"
