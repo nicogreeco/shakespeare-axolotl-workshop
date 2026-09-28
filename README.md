@@ -77,6 +77,86 @@ RUN_ID=run-YYYYMMDDTHHMMSSZ-NNNN  # replace with a directory name from the previ
 
 This starts a new, inference-only Nebius job. It reads `runs/$RUN_ID/adapter` and writes `runs/$RUN_ID/comparison.json`; it does not repeat the 200 training steps. Use the new job name printed by the launcher with `nebius ai logs <job-id>` to check completion.
 
+## 5. Public-domain character datasets
+
+The second preprocessing option reads the downloaded
+[`agentlans/practical-dreamer-RPGPT_PublicDomain`](https://huggingface.co/datasets/agentlans/practical-dreamer-RPGPT_PublicDomain)
+file from `data/public_domain/train.jsonl.zst` and prepares all five characters:
+
+```bash
+python3 prepare_data.py --dataset public-domain
+```
+
+To rebuild only one character, use one of `count-dracula`, `sherlock-holmes`,
+`the-cheshire-cat`, `odysseus`, or `dorian-gray`:
+
+```bash
+python3 prepare_data.py --dataset public-domain --character sherlock-holmes
+```
+
+Original conversations are shuffled with seed 42 and split 80/10/10 before any
+examples are created. The original `system` message, including the character and
+scenario description, is deliberately removed. Each example contains one or two
+consecutive `user`/`assistant` exchanges, is limited to 500 whitespace-delimited
+words, and ends with an assistant response. Windows do not overlap, so every
+retained assistant response is a training target exactly once.
+
+Replies containing only `*stage directions*` are excluded and start a new window;
+replies containing both an action and spoken dialogue are retained. Without the
+scenario, windows whose first user turn has fewer than six spoken words after
+removing `*stage directions*` are also excluded as context-dependent. This drops
+short continuations such as riddle answers while preserving their original text
+in every retained example.
+
+The generated files are kept separate by character:
+
+```text
+data/public_domain/processed/sherlock-holmes/
+├── train.jsonl
+├── validation.jsonl
+├── test.jsonl
+└── summary.json
+```
+
+An abbreviated processed example looks like this:
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "Count Dracula, I thank you for your hospitality."},
+    {"role": "assistant", "content": "Mr. Rivers, it is my pleasure to offer you shelter during this violent storm."},
+    {"role": "user", "content": "Your reputation precedes you, sir."},
+    {"role": "assistant", "content": "I am no stranger to the whispers and legends that surround my existence."}
+  ]
+}
+```
+
+Upload the desired directory to the input bucket:
+
+```bash
+aws s3 sync data/public_domain/processed/sherlock-holmes/ \
+  s3://workshop-input/datasets/public-domain/sherlock-holmes/
+```
+
+Then select that character by changing only the dataset paths in `axolotl.yaml`:
+
+```yaml
+datasets:
+  - path: /inputs/datasets/public-domain/sherlock-holmes/train.jsonl
+    type: chat_template
+    roles_to_train: [assistant]
+test_datasets:
+  - path: /inputs/datasets/public-domain/sherlock-holmes/validation.jsonl
+    type: chat_template
+    roles_to_train: [assistant]
+```
+
+The separate `test.jsonl` remains untouched during training and validation. With
+the existing `roles_to_train: [assistant]` and `train_on_inputs: false` settings,
+only the converted assistant messages contribute to the loss. The automatic
+comparison sends the same held-out conversation prompt, without a character
+instruction, to both the base model and the LoRA model.
+
 ## References
 
 - [Nebius Axolotl tutorial](https://docs.nebius.com/serverless/tutorials/fine-tuning) and [cookbook example](https://github.com/nebius/serverless-ai-cookbook/blob/main/training/axolotl-finetuning/README.md)

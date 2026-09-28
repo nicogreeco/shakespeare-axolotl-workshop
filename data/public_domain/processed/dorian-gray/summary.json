@@ -1,0 +1,46 @@
+{
+  "character": "Dorian Gray",
+  "slug": "dorian-gray",
+  "seed": 42,
+  "original_conversations": 21,
+  "split_ratios": {
+    "train": 0.8,
+    "validation": 0.1,
+    "test": 0.1
+  },
+  "windowing": {
+    "max_exchanges": 2,
+    "max_words": 500,
+    "overlap": false,
+    "system_messages": "excluded",
+    "minimum_spoken_words_in_first_user_turn": 6,
+    "stage_direction_only_replies": "excluded and treated as a context boundary",
+    "context_dependent_window_starts": "excluded"
+  },
+  "splits": {
+    "train": {
+      "original_conversations": 17,
+      "examples": 164,
+      "assistant_targets": 319,
+      "stage_only_skipped": 2,
+      "context_dependent_skipped": 3,
+      "overlong_skipped": 0
+    },
+    "validation": {
+      "original_conversations": 2,
+      "examples": 16,
+      "assistant_targets": 31,
+      "stage_only_skipped": 2,
+      "context_dependent_skipped": 1,
+      "overlong_skipped": 0
+    },
+    "test": {
+      "original_conversations": 2,
+      "examples": 24,
+      "assistant_targets": 45,
+      "stage_only_skipped": 4,
+      "context_dependent_skipped": 2,
+      "overlong_skipped": 0
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "character": "Count Dracula",
+  "slug": "count-dracula",
+  "seed": 42,
+  "original_conversations": 30,
+  "split_ratios": {
+    "train": 0.8,
+    "validation": 0.1,
+    "test": 0.1
+  },
+  "windowing": {
+    "max_exchanges": 2,
+    "max_words": 500,
+    "overlap": false,
+    "system_messages": "excluded",
+    "minimum_spoken_words_in_first_user_turn": 6,
+    "stage_direction_only_replies": "excluded and treated as a context boundary",
+    "context_dependent_window_starts": "excluded"
+  },
+  "splits": {
+    "train": {
+      "original_conversations": 24,
+      "examples": 251,
+      "assistant_targets": 480,
+      "stage_only_skipped": 20,
+      "context_dependent_skipped": 10,
+      "overlong_skipped": 0
+    },
+    "validation": {
+      "original_conversations": 3,
+      "examples": 35,
+      "assistant_targets": 65,
+      "stage_only_skipped": 1,
+      "context_dependent_skipped": 3,
+      "overlong_skipped": 0
+    },
+    "test": {
+      "original_conversations": 3,
+      "examples": 36,
+      "assistant_targets": 68,
+      "stage_only_skipped": 0,
+      "context_dependent_skipped": 2,
+      "overlong_skipped": 0
+    }
+  }
+}

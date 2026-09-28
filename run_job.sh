@@ -5,8 +5,11 @@ set -euo pipefail
 CONFIG_PATH=${1:?Usage: run_job.sh CONFIG_PATH GROUP_OUTPUT_DIR}
 GROUP_OUTPUT_DIR=${2:?Usage: run_job.sh CONFIG_PATH GROUP_OUTPUT_DIR}
 
+RUN_LABEL=${RUN_LABEL:-}
+[[ -z "$RUN_LABEL" || "$RUN_LABEL" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid run label: $RUN_LABEL" >&2; exit 2; }
+
 # Each training run gets its own folder in the group's output directory.
-RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+RUN_ID="run-${RUN_LABEL:+$RUN_LABEL-}$(date -u +%Y%m%dT%H%M%SZ)-$$"
 RUN_OUTPUT_DIR="$GROUP_OUTPUT_DIR/runs/$RUN_ID"
 ADAPTER_DIR="$RUN_OUTPUT_DIR/adapter"
 AXOLOTL_OUTPUT_DIR=/workspace/output

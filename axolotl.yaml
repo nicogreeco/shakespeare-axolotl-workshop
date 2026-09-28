@@ -3,11 +3,11 @@ adapter: lora
 chat_template: tokenizer_default
 
 datasets:
-  - path: /inputs/datasets/v1/train.jsonl
+  - path: /inputs/datasets/public-domain/the-cheshire-cat/train.jsonl
     type: chat_template
     roles_to_train: [assistant]
 test_datasets:
-  - path: /inputs/datasets/v1/validation.jsonl
+  - path: /inputs/datasets/public-domain/the-cheshire-cat/validation.jsonl
     type: chat_template
     roles_to_train: [assistant]
 train_on_inputs: false
