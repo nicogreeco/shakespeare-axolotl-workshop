@@ -1,6 +1,6 @@
 # Shakespeare dialogue LoRA PoC
 
-Fine-tune `Qwen/Qwen2.5-1.5B-Instruct` to answer one line of Shakespeare dialogue with the next line. The source dataset has no actor labels, so this trains a general play-character response, not a specific role.
+Fine-tune Qwen models on Shakespeare dialogue or public-domain character roleplay. The root `axolotl.yaml` is a quick Cheshire Cat profile using `Qwen/Qwen2.5-0.5B`; the dedicated files under `configs/` use `Qwen/Qwen2.5-7B`.
 
 ## 1. Prepare the data on this VM
 
@@ -26,6 +26,13 @@ The launcher passes `project-e01sbq2tpr00wr01f08fmk` as `--parent-id` explicitly
 ```bash
 ./submit_job.sh --dry-run
 ./submit_job.sh
+```
+
+The launcher uses the root `axolotl.yaml` unless `AXOLOTL_CONFIG_PATH` is set. For example, to use the dedicated Dracula config:
+
+```bash
+AXOLOTL_CONFIG_PATH=configs/count-dracula.yaml WORKSHOP_RUN_LABEL=count-dracula-7b ./submit_job.sh --dry-run
+AXOLOTL_CONFIG_PATH=configs/count-dracula.yaml WORKSHOP_RUN_LABEL=count-dracula-7b ./submit_job.sh
 ```
 
 `--dry-run` is a local command preview: the Nebius CLI installed on this VM (0.12.235) does not provide a server-side `--dry-run` option. It checks that the prepared files exist and prints the exact create command without submitting a job.
@@ -60,7 +67,7 @@ ls -lh runs/*/adapter/
 cat runs/*/comparison.json
 ```
 
-A completed run stores the adapter, `comparison.json`, `comparison.md`, `loss.csv`, and `loss.svg` under `/outputs/<group>/runs/<run-id>/`. The CSV contains `step`, `train_loss`, and `validation_loss`; the SVG plots both curves and marks the best validation-loss checkpoint. The comparison uses three held-out prompts without a system instruction for either model.
+A completed run stores the adapter, `comparison.json`, `comparison.md`, `training.log`, `loss.csv`, and `loss.svg` under `/outputs/<group>/runs/<run-id>/`. The CSV contains `step`, `train_loss`, and `validation_loss`; the SVG plots both curves and marks the best validation-loss checkpoint. The comparison uses three held-out prompts without a system instruction for either model.
 
 ## 4. Retry comparison without training again
 
@@ -75,7 +82,7 @@ RUN_ID=run-YYYYMMDDTHHMMSSZ-NNNN  # replace with a directory name from the previ
 ./submit_job.sh --compare-only "$RUN_ID"
 ```
 
-This starts a new, inference-only Nebius job. It reads `runs/$RUN_ID/adapter` and writes `runs/$RUN_ID/comparison.json`; it does not repeat the 200 training steps. Use the new job name printed by the launcher with `nebius ai logs <job-id>` to check completion.
+This starts a new, inference-only Nebius job. It reads `runs/$RUN_ID/adapter` and writes `runs/$RUN_ID/comparison.json`; it does not repeat training. Use the new job name printed by the launcher with `nebius ai logs <job-id>` to check completion.
 
 ## 5. Public-domain character datasets
 
@@ -151,33 +158,41 @@ test_datasets:
     roles_to_train: [assistant]
 ```
 
-The separate `test.jsonl` remains untouched during training and validation. With
-the existing `roles_to_train: [assistant]` and `train_on_inputs: false` settings,
-only the converted assistant messages contribute to the loss. The automatic
-comparison sends the same held-out conversation prompt, without a character
-instruction, to both the base model and the LoRA model.
+The separate `test.jsonl` remains untouched during training and validation. Its
+first three rows are curated as neutral comparison prompts for each character.
+With the existing `roles_to_train: [assistant]` and `train_on_inputs: false`
+settings, only the converted assistant messages contribute to the loss. The
+automatic comparison sends the final user message from each of those rows,
+without a character instruction or earlier assistant reply, to both the base
+model and the LoRA model.
 
 ## 6. Recommended training settings
 
 Use separate step-based schedules for the two dataset families. The small
 character datasets need far fewer steps than Shakespeare.
 
+The profiles below mirror the dedicated 7B files in `configs/`. The root `axolotl.yaml`
+remains the smaller 0.5B Cheshire Cat profile with 120 maximum steps and
+logging every 10 steps.
+
 ### Shakespeare
 
 The 4,000-example Shakespeare training set can start with 500 steps:
 
 ```yaml
+base_model: Qwen/Qwen2.5-7B
 micro_batch_size: 4
 gradient_accumulation_steps: 8  # effective batch size: 32
 learning_rate: 0.0002
 max_steps: 500
 warmup_steps: 10
+logging_steps: 5
 
 eval_strategy: steps
 eval_steps: 125
 save_strategy: steps
 save_steps: 125
-save_total_limit: 1
+save_total_limit: 2
 load_best_model_at_end: true
 metric_for_best_model: eval_loss
 greater_is_better: false
@@ -187,21 +202,23 @@ early_stopping_patience: 2
 ### Public-domain character
 
 Each character has only about 160--250 training examples. Use a smaller learning
-rate and effective batch size. Start with 120 steps and let validation-based early
-stopping end the run if it stops improving:
+rate and effective batch size. The character configs use 150 steps and let
+validation-based early stopping end the run if it stops improving:
 
 ```yaml
+base_model: Qwen/Qwen2.5-7B
 micro_batch_size: 4
 gradient_accumulation_steps: 4  # effective batch size: 16
 learning_rate: 0.00005
-max_steps: 120
+max_steps: 150
 warmup_steps: 8
+logging_steps: 5
 
 eval_strategy: steps
 eval_steps: 15
 save_strategy: steps
 save_steps: 15
-save_total_limit: 1
+save_total_limit: 2
 load_best_model_at_end: true
 metric_for_best_model: eval_loss
 greater_is_better: false
@@ -211,7 +228,7 @@ early_stopping_patience: 2
 These profiles use integer step counts because this Axolotl version requires
 `eval_steps` and `save_steps` with early stopping. Keep the evaluation and save
 intervals equal so every evaluated checkpoint can become the best checkpoint.
-Early stopping ends training after two consecutive epoch evaluations without an
+Early stopping ends training after two consecutive evaluations without an
 improvement. The adapter copied to the run output is the checkpoint with the
 lowest validation loss; validation perplexity gives the same ranking because it
 is derived from that loss.
@@ -220,4 +237,4 @@ is derived from that loss.
 
 - [Nebius Axolotl tutorial](https://docs.nebius.com/serverless/tutorials/fine-tuning) and [cookbook example](https://github.com/nebius/serverless-ai-cookbook/blob/main/training/axolotl-finetuning/README.md)
 - [Axolotl chat dataset format](https://docs.axolotl.ai/docs/dataset-formats/conversation.html)
-- [Qwen2.5-1.5B-Instruct model](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct)
+- [Qwen2.5-7B model](https://huggingface.co/Qwen/Qwen2.5-7B)

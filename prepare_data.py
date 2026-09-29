@@ -35,6 +35,33 @@ PUBLIC_DOMAIN_CHARACTERS = {
     "odysseus": "Odysseus",
     "dorian-gray": "Dorian Gray",
 }
+PUBLIC_DOMAIN_COMPARISON_PROMPTS = {
+    "count-dracula": (
+        "*startled by his presence, jumps slightly before composing herself* Indeed. I am looking for a young girl under my care. She appears to have wandered off during the ball. *furrows her brow, concern etched on her face*",
+        "*lays her hand on his, her voice filled with compassion* Perhaps it is not about what the world can take from you, but rather what you are willing to offer it in return.",
+        "*nods determinedly, committing each symbol to memory with unwavering focus* It feels as though we are drawing closer to the heart of this mystery.",
+    ),
+    "sherlock-holmes": (
+        "*picks up an ancient tome from the desk and flips through its pages* This seems to be a collection of old letters and correspondence. Could our mysterious host have been gathering information on us for some time?",
+        "*nods solemnly, disturbed by the information* Yes, it's unsettling to think that someone has been observing us so closely without our knowledge. We must find out who is behind this.",
+        "*looks around carefully, then speaks cautiously* You are clearly a learned man – these books and papers suggest a thirst for knowledge. The variety of artifacts indicate that you have traveled far and wide or have connections with those who do. Your violin suggests an appreciation for music and perhaps a talent for it as well.",
+    ),
+    "the-cheshire-cat": (
+        "*smiles warmly* Thank you, sir. My father always tells me to be grateful for the blessings we have and to always see the good in things. I believe that even in difficult times, there's always something to be thankful for.",
+        "*raising an eyebrow* 'Tis true that life holds no certainties, but I offer loyalty and the resources of my kingdom at your disposal. There must be some appeal to this proposition?",
+        "*laughing softly* And amusement you shall have, my friend. For even in these trying times, we must find moments of joy and respite.",
+    ),
+    "odysseus": (
+        "*raises an eyebrow* Ah, a foreigner! How exciting. What brings you to our fine event this evening?",
+        "*nods slowly* Perhaps I can draw upon some of the strength and courage you speak of. But where do I even begin? How does one peel away the layers of societal expectations?",
+        "*glances at the masks and extravagant attire of the guests around them* I have to admit, I've grown rather attached to my image. It will be difficult to let go of it.",
+    ),
+    "dorian-gray": (
+        "*nodding thoughtfully* Art certainly has a way of revealing our true selves. Speaking of which, I couldn't help but notice your admiration for some of the paintings displayed on this voyage. It seems there's more to you than meets the eye.",
+        "*leaning against the railing once more* I suppose it depends on what we value most – the tangible pleasures of this world or the intangible rewards of personal growth and understanding.",
+        "*gesturing towards the collection of art on display* As we sail across this vast expanse, I find myself drawn to these works even more. It's as if they're telling me something about myself that I haven't yet understood.",
+    ),
+}
 PUBLIC_DOMAIN_SEED = 42
 PUBLIC_DOMAIN_VALIDATION_RATIO = 0.10
 PUBLIC_DOMAIN_TEST_RATIO = 0.10
@@ -343,6 +370,21 @@ def validate_public_domain_examples(examples: list[dict], expected_targets: int)
             f"expected {expected_targets}"
         )
 
+
+def put_comparison_examples_first(slug: str, examples: list[dict]) -> list[dict]:
+    selected_prompts = PUBLIC_DOMAIN_COMPARISON_PROMPTS[slug]
+    rows_by_prompt = {row["messages"][-2]["content"]: row for row in examples}
+    missing = [prompt for prompt in selected_prompts if prompt not in rows_by_prompt]
+    if missing:
+        raise ValueError(
+            f"{slug} test split is missing {len(missing)} curated comparison prompt(s)"
+        )
+
+    selected = [rows_by_prompt[prompt] for prompt in selected_prompts]
+    selected_ids = {id(row) for row in selected}
+    return [*selected, *(row for row in examples if id(row) not in selected_ids)]
+
+
 def write_jsonl(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -372,6 +414,8 @@ def prepare_public_domain(character_slugs: list[str], seed: int) -> list[dict]:
         for split_name, split_originals in splits.items():
             examples, stats = build_public_domain_examples(split_originals)
             validate_public_domain_examples(examples, stats["assistant_targets"])
+            if split_name == "test" and seed == PUBLIC_DOMAIN_SEED:
+                examples = put_comparison_examples_first(slug, examples)
             write_jsonl(output_dir / f"{split_name}.jsonl", examples)
             split_stats[split_name] = {
                 "original_conversations": len(split_originals),

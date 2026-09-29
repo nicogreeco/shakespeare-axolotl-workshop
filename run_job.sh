@@ -28,7 +28,7 @@ mkdir -p "$ADAPTER_DIR"
 cp "$CONFIG_PATH" "$RUN_OUTPUT_DIR/axolotl.yaml"
 
 echo "Starting Axolotl training..."
-axolotl train "$CONFIG_PATH"
+axolotl train "$CONFIG_PATH" 2>&1 | tee "$RUN_OUTPUT_DIR/training.log"
 
 echo "Creating training loss artifacts..."
 if python3 "$SCRIPT_DIR/plot_losses.py" \
