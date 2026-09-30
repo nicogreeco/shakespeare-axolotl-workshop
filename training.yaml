@@ -1,0 +1,50 @@
+# One starting point for any voice. Edit both dataset paths and the model.
+# For Shakespeare, see PRACTICAL.md for the different training schedule.
+base_model: Qwen/Qwen2.5-7B
+datasets:
+  - path: /inputs/datasets/public-domain/the-cheshire-cat/train.jsonl
+    type: chat_template
+    roles_to_train: [assistant]
+test_datasets:
+  - path: /inputs/datasets/public-domain/the-cheshire-cat/validation.jsonl
+    type: chat_template
+    roles_to_train: [assistant]
+
+adapter: lora
+chat_template: tokenizer_default
+train_on_inputs: false
+sequence_len: 1024
+micro_batch_size: 4
+gradient_accumulation_steps: 4
+learning_rate: 0.00005
+max_steps: 150
+warmup_steps: 8
+eval_steps: 15
+save_steps: 15
+seed: 42
+eval_strategy: steps
+save_strategy: steps
+logging_steps: 5
+save_total_limit: 2
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+early_stopping_patience: 2
+
+bf16: true
+gradient_checkpointing: true
+optimizer: adamw_torch
+dataset_prepared_path: /workspace/prepared
+output_dir: /workspace/output
+
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj

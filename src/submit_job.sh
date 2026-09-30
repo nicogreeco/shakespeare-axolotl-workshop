@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=/mnt/hcls/workshop-llm
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_ID=${NEBIUS_PARENT_ID:-project-e00qv62ppr00qnw83re3az}
 SUBNET_ID=${NEBIUS_SUBNET_ID:-vpcsubnet-e00pemmjzw1rtz7nz0}
 INPUT_BUCKET_ID=${NEBIUS_INPUT_BUCKET_ID:-storagebucket-e0016188093964268922151}

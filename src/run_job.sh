@@ -13,7 +13,11 @@ RUN_ID="run-${RUN_LABEL:+$RUN_LABEL-}$(date -u +%Y%m%dT%H%M%SZ)-$$"
 RUN_OUTPUT_DIR="$GROUP_OUTPUT_DIR/runs/$RUN_ID"
 ADAPTER_DIR="$RUN_OUTPUT_DIR/adapter"
 AXOLOTL_OUTPUT_DIR=/workspace/output
-SCRIPT_DIR="$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Keep the helper scripts beside this runner, both locally and in the S3 release.
+for helper in compare.py plot_losses.py; do
+  [[ -f "$SCRIPT_DIR/$helper" ]] || { echo "Missing helper: $SCRIPT_DIR/$helper" >&2; exit 1; }
+done
 COMPARE_SCRIPT="$SCRIPT_DIR/compare.py"
 
 echo "Run ID: $RUN_ID"
