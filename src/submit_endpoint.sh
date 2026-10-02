@@ -15,7 +15,7 @@ RUN_ID=${1:?Usage: submit_endpoint.sh RUN_ID [NEBIUS_OPTIONS]}
 shift
 
 [[ "$GROUP_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid group ID: $GROUP_ID" >&2; exit 2; }
-[[ "$RUN_ID" =~ ^run-[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]] || { echo "Invalid run ID: $RUN_ID" >&2; exit 2; }
+[[ "$RUN_ID" =~ ^run-([a-z0-9][a-z0-9-]*-)?[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]] || { echo "Invalid run ID: $RUN_ID" >&2; exit 2; }
 [[ "$MODEL_ID" =~ ^[a-zA-Z0-9._/-]+$ ]] || { echo "Invalid model ID: $MODEL_ID" >&2; exit 2; }
 [[ "$ADAPTER_NAME" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "Invalid adapter name: $ADAPTER_NAME" >&2; exit 2; }
 [[ "$ENDPOINT_AUTH" == none || "$ENDPOINT_AUTH" == token ]] || { echo "Invalid endpoint auth: $ENDPOINT_AUTH" >&2; exit 2; }

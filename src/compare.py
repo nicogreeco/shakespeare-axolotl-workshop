@@ -19,20 +19,36 @@ def load_training_config(path: Path) -> tuple[str, Path]:
     import yaml
 
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return config["base_model"], Path(config["test_datasets"][0]["path"])
+    validation_path = Path(config["test_datasets"][0]["path"])
+    held_out_test_path = validation_path.with_name("test.jsonl")
+    comparison_path = held_out_test_path if held_out_test_path.is_file() else validation_path
+    return config["base_model"], comparison_path
 
 
 def sample_rows(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as source:
         rows = [json.loads(line) for line in source]
     if len(rows) < 3:
-        raise ValueError("Validation data needs at least three examples")
-    return [rows[0], rows[len(rows) // 2], rows[-1]]
+        raise ValueError("Comparison data needs at least three examples")
+    return rows[:3]
+
+
+def prompt_messages(row: dict) -> list[dict]:
+    messages = row.get("messages")
+    if not isinstance(messages, list) or len(messages) < 2:
+        raise ValueError("Comparison rows need at least one user/assistant exchange")
+    if any(message.get("role") == "system" for message in messages):
+        raise ValueError("Comparison prompts must not contain a system message")
+    if messages[-1].get("role") != "assistant":
+        raise ValueError("Comparison rows must end with an assistant reference")
+    if messages[-2].get("role") != "user":
+        raise ValueError("Comparison prompts must end with a user message")
+    return [messages[-2]]
 
 
 def main() -> None:
     args = parse_args()
-    model_id, validation_path = load_training_config(args.config)
+    model_id, comparison_path = load_training_config(args.config)
     # Imports stay here so --help works outside the Axolotl container.
     import torch
     from peft import PeftModel
@@ -42,10 +58,10 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         model_id, dtype=torch.bfloat16, device_map="auto"
     ).eval()
-    rows = sample_rows(validation_path)
+    rows = sample_rows(comparison_path)
+    prompts = [prompt_messages(row) for row in rows]
 
-    def generate(row: dict, current_model) -> str:
-        messages = row["messages"][:-1]
+    def generate(messages: list[dict], current_model) -> str:
         inputs = tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt"
         ).to(next(current_model.parameters()).device)
@@ -58,14 +74,15 @@ def main() -> None:
             )
         return tokenizer.decode(output[0, inputs["input_ids"].shape[-1] :], skip_special_tokens=True).strip()
 
-    base_answers = [generate(row, model) for row in rows]
+    # Reuse the exact same prompt objects for base and adapter generation.
+    base_answers = [generate(prompt, model) for prompt in prompts]
     adapted = PeftModel.from_pretrained(model, str(args.adapter)).eval()
-    adapter_answers = [generate(row, adapted) for row in rows]
+    adapter_answers = [generate(prompt, adapted) for prompt in prompts]
     comparisons = []
-    for row, base, adapter in zip(rows, base_answers, adapter_answers):
+    for row, prompt, base, adapter in zip(rows, prompts, base_answers, adapter_answers):
         comparisons.append(
             {
-                "prompt": row["messages"][-2]["content"],
+                "prompt": prompt[-1]["content"],
                 "reference": row["messages"][-1]["content"],
                 "base": base,
                 "adapter": adapter,

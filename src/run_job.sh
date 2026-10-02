@@ -5,12 +5,20 @@ set -euo pipefail
 CONFIG_PATH=${1:?Usage: run_job.sh CONFIG_PATH GROUP_OUTPUT_DIR}
 GROUP_OUTPUT_DIR=${2:?Usage: run_job.sh CONFIG_PATH GROUP_OUTPUT_DIR}
 
+RUN_LABEL=${RUN_LABEL:-}
+[[ -z "$RUN_LABEL" || "$RUN_LABEL" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid run label: $RUN_LABEL" >&2; exit 2; }
+
 # Each training run gets its own folder in the group's output directory.
-RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+RUN_ID="run-${RUN_LABEL:+$RUN_LABEL-}$(date -u +%Y%m%dT%H%M%SZ)-$$"
 RUN_OUTPUT_DIR="$GROUP_OUTPUT_DIR/runs/$RUN_ID"
 ADAPTER_DIR="$RUN_OUTPUT_DIR/adapter"
 AXOLOTL_OUTPUT_DIR=/workspace/output
-COMPARE_SCRIPT="$(dirname "$0")/compare.py"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Keep the helper scripts beside this runner, both locally and in the S3 release.
+for helper in compare.py plot_losses.py; do
+  [[ -f "$SCRIPT_DIR/$helper" ]] || { echo "Missing helper: $SCRIPT_DIR/$helper" >&2; exit 1; }
+done
+COMPARE_SCRIPT="$SCRIPT_DIR/compare.py"
 
 echo "Run ID: $RUN_ID"
 echo "Output directory: $RUN_OUTPUT_DIR"
@@ -24,7 +32,17 @@ mkdir -p "$ADAPTER_DIR"
 cp "$CONFIG_PATH" "$RUN_OUTPUT_DIR/axolotl.yaml"
 
 echo "Starting Axolotl training..."
-axolotl train "$CONFIG_PATH"
+axolotl train "$CONFIG_PATH" 2>&1 | tee "$RUN_OUTPUT_DIR/training.log"
+
+echo "Creating training loss artifacts..."
+if python3 "$SCRIPT_DIR/plot_losses.py" \
+  --input "$AXOLOTL_OUTPUT_DIR" \
+  --csv "$RUN_OUTPUT_DIR/loss.csv" \
+  --svg "$RUN_OUTPUT_DIR/loss.svg"; then
+  echo "Loss CSV and plot saved."
+else
+  echo "Warning: loss artifacts could not be created." >&2
+fi
 
 echo "Saving the trained adapter..."
 if [[ ! -s "$AXOLOTL_OUTPUT_DIR/adapter_config.json" ]]; then
