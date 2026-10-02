@@ -115,13 +115,13 @@ In the console, open **Serverless AI → Jobs → Create job**. Choose the **Axo
 
 A mounted Object Storage bucket appears as files in the container. For example, `s3://workshop-input/datasets/shakespeare/train.jsonl` becomes `/inputs/datasets/shakespeare/train.jsonl`. The input mount supplies datasets and the runner script; the output mount receives the adapter and run artifacts. In **Files**, paste the YAML from your editor, or download it from JupyterLab and upload it from your computer. See [Nebius's Job guide](https://docs.nebius.com/serverless/jobs/manage) for those controls.
 
-Give the entrypoint this command, using a short output prefix of your own in place of `my-run`:
+Give the entrypoint this command. Choose a short group name and a unique run ID; use a new ID for each training attempt:
 
 ```bash
-bash -c "bash /inputs/releases/v1/run_job.sh /config/axolotl.yaml /outputs/my-run"
+bash -c "bash /inputs/releases/v1/run_job.sh /config/axolotl.yaml my-group run-1"
 ```
 
-This starts the included `run_job.sh` script with your YAML and output location. It trains with Axolotl, then writes each run into `/outputs/my-run/runs/<run-id>/`. The prefix simply keeps runs separate in the shared output bucket. Click **Create job** and watch the logs. The script prints a **Run ID**, which you will need for serving the adapter. It also saves `training.log`, loss plots, and a small automatic comparison alongside `adapter/`.
+This starts the included `run_job.sh` script with your YAML, group and run ID. Use lowercase letters, numbers and hyphens, with no spaces. It trains with Axolotl, then writes the results to `/outputs/my-group/runs/run-1/`. Choose a group name that identifies your team or experiment; the run ID distinguishes this attempt from others in that group. Use a new run ID for each attempt. Click **Create job** and watch the logs. The script prints the output path, and saves `training.log`, loss plots, and a small automatic comparison alongside `adapter/`.
 
 While the Job runs, look for a line like this in its logs:
 
@@ -133,12 +133,12 @@ How many of *your* model's parameters are trainable? What percentage is that? Co
 
 ## Put the character on stage
 
-Once training has finished, browse **Storage → Object Storage → workshop-outputs → your prefix → runs → your Run ID → adapter**. Check that `adapter_config.json` and `adapter_model.safetensors` are present. `adapter_config.json` also records the exact base model and LoRA rank.
+Once training has finished, browse **Storage → Object Storage → workshop-outputs → your group → runs → your run ID → adapter**. Check that `adapter_config.json` and `adapter_model.safetensors` are present. `adapter_config.json` also records the exact base model and LoRA rank.
 
-Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. Mount `workshop-outputs` at `/outputs` **read-only**. Use the exact base model and rank from `adapter_config.json`. Replace `my-run` and `RUN_ID` below with your output prefix and actual Run ID:
+Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. Mount `workshop-outputs` at `/outputs` **read-only**. Use the exact base model and rank from `adapter_config.json`. Replace `my-group` and `run-1` below with the group name and run ID you chose:
 
 ```bash
-python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules character=/outputs/my-run/runs/RUN_ID/adapter --host 0.0.0.0 --port 8000
+python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules character=/outputs/my-group/runs/run-1/adapter --host 0.0.0.0 --port 8000
 ```
 
 The model name `character` refers to the adapter, whether you chose a character or Shakespeare. vLLM can [serve the base model and its LoRA adapter together](https://docs.vllm.ai/en/latest/features/lora/). Reconnect the notebook to this endpoint. Ask the base model and `character` the same question, then try your own prompts. Does it sound more like your chosen voice? Does it still answer the question? No need to score it: have a look and play.

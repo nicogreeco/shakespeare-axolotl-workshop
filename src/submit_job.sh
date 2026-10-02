@@ -9,16 +9,18 @@ OUTPUT_BUCKET_ID=${NEBIUS_OUTPUT_BUCKET_ID:-storagebucket-e003360829724144205545
 GROUP_ID=${WORKSHOP_GROUP_ID:-demo}
 RELEASE=${WORKSHOP_RELEASE:-v1}
 RUN_LABEL=${WORKSHOP_RUN_LABEL:-}
+RUN_ID=${WORKSHOP_RUN_ID:-}
 CONFIG_PATH=${AXOLOTL_CONFIG_PATH:-$ROOT/axolotl.yaml}
 DISK_SIZE=${NEBIUS_DISK_SIZE:-100Gi}
 IMAGE=docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1
 [[ "$GROUP_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid group ID: $GROUP_ID" >&2; exit 2; }
 [[ "$RELEASE" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "Invalid release: $RELEASE" >&2; exit 2; }
 [[ -z "$RUN_LABEL" || "$RUN_LABEL" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid run label: $RUN_LABEL" >&2; exit 2; }
+[[ -z "$RUN_ID" || "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid run ID: $RUN_ID" >&2; exit 2; }
 
 JOB_PREFIX=${RUN_LABEL:-shakespeare}
 JOB_NAME="$JOB_PREFIX-$GROUP_ID-$(date -u +%Y%m%d%H%M%S)"
-JOB_ARGS="-c \"bash /inputs/releases/$RELEASE/run_job.sh /config/axolotl.yaml /outputs/$GROUP_ID\""
+JOB_ARGS="-c \"bash /inputs/releases/$RELEASE/run_job.sh /config/axolotl.yaml $GROUP_ID${RUN_ID:+ $RUN_ID}\""
 test -s "$CONFIG_PATH" || { echo "Missing config: $CONFIG_PATH" >&2; exit 1; }
 
 options=(
@@ -43,8 +45,8 @@ if [[ -n "${NEBIUS_PROFILE:-}" ]]; then
   options+=(--profile "$NEBIUS_PROFILE")
 fi
 
-printf 'Job name: %s\nProject ID: %s\nGroup: %s\nRun label: %s\nRelease: %s\nDisk size: %s\n' \
-  "$JOB_NAME" "$PROJECT_ID" "$GROUP_ID" "${RUN_LABEL:-none}" "$RELEASE" "$DISK_SIZE"
+printf 'Job name: %s\nProject ID: %s\nGroup: %s\nRun label: %s\nRun ID: %s\nRelease: %s\nDisk size: %s\n' \
+  "$JOB_NAME" "$PROJECT_ID" "$GROUP_ID" "${RUN_LABEL:-none}" "${RUN_ID:-auto-generated}" "$RELEASE" "$DISK_SIZE"
 printf 'Config: %s\n' "$CONFIG_PATH"
 if [[ "${1:-}" == --dry-run ]]; then
   shift
