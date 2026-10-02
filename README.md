@@ -1,9 +1,7 @@
 # Give an LLM a character
 
-A short practical on GPU memory, LoRA fine-tuning, and serving a model with Nebius Serverless AI. You can train on Shakespeare dialogue or public-domain character roleplay, then ask the base model and its adapter the same questions.
+Large language models can imitate many voices, but running and adapting them takes GPU memory. This practical lets you explore that trade-off with Nebius Serverless AI: estimate what fits on an L40S, try a model, fine-tune it with LoRA on a character or Shakespeare dialogue, and compare the result with a larger hosted model through Nebius Token Factory.
 
-Start with [PRACTICAL.md](PRACTICAL.md). It walks through the Nebius console, asks you to estimate what fits on an L40S, and shows how to create the training Job and endpoints. Edit [training.yaml](training.yaml) for your chosen model and dataset, and use [lab.ipynb](lab.ipynb) to talk to the endpoints.
+Start with [PRACTICAL.md](PRACTICAL.md), which guides you through the exercise and explains the choices along the way. Edit [training.yaml](training.yaml) for your chosen model and dataset, and use [lab.ipynb](lab.ipynb) to send questions to the models.
 
-The optional command-line entry points and supporting scripts live in `src/`; they are not needed for the console-based practical. To prepare data locally, run `python3 src/prepare_data.py`. The older `axolotl.yaml` and `configs/` are separate run profiles, while [historical CLI notes](src/OPERATIONS.md) document earlier experiments.
-
-The practical's Job executes the already published `/inputs/releases/v1/run_job.sh` from the `workshop-input` bucket. Moving files in this checkout does not update that Object Storage release.
+You can follow the practical without knowing the scripts behind it. The notebook also shows how the same OpenAI Python SDK can talk to both your Nebius endpoint and Token Factory.

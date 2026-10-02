@@ -144,3 +144,13 @@ python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B --dtype bf
 The model name `character` refers to the adapter, whether you chose a character or Shakespeare. vLLM can [serve the base model and its LoRA adapter together](https://docs.vllm.ai/en/latest/features/lora/). Reconnect the notebook to this endpoint. Ask the base model and `character` the same question, then try your own prompts. Does it sound more like your chosen voice? Does it still answer the question? No need to score it: have a look and play.
 
 When you are done, stop the endpoints in the console so they no longer reserve a GPU. Your training outputs remain in Object Storage.
+
+## One more voice: Nebius Token Factory
+
+Your LoRA adapter is one way to get a model to speak in a particular style. Now try a different route with **Nebius Token Factory**, a hosted API that gives you access to larger models without deploying them on your L40S. A model trained on broad collections of text may already know something about Shakespeare or familiar literary characters. A **system message** can ask it to adopt a voice; that is a prompt-time instruction, not fine-tuning. It may produce a convincing style, though it will not necessarily know every detail or stay in character.
+
+Token Factory uses the same OpenAI-compatible chat format as vLLM. The client setup changes: use the Token Factory API address and an API key. The request still contains a model name and a list of messages. In that list, `system` gives the model its role and style, while `user` provides the question. See the [Token Factory quickstart](https://docs.tokenfactory.nebius.com/quickstart).
+
+When you have the class API key, run the final Token Factory cells in `lab.ipynb`. The key is requested with hidden input and is not written into the cell. Select an available large model from the list shown by the notebook. Try either a character prompt, such as “You are Sherlock Holmes: answer with precise, observant reasoning and a restrained Victorian voice,” or a Shakespeare prompt, such as “Speak as a character in a Shakespeare play, using Early Modern English.” Then ask the same question you asked your fine-tuned model.
+
+How close does the prompt-only answer get to the character or play style? What does the adapter add, if anything? You are comparing two ways to shape an answer: learned adapter weights and instructions in a system message. The results may vary by model and prompt.
