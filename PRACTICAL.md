@@ -2,7 +2,7 @@
 
 Modern language models are rather good at making words follow other words. They are also rather large. Getting one onto a GPU, let alone teaching it something new, can turn into a memory puzzle. Every gigabyte we avoid using is also a small favour to the budget.
 
-In this practical, you will try Nebius Serverless AI with a model from the [Qwen2.5 family](https://huggingface.co/collections/Qwen/qwen25). First, deploy a model behind an API and ask it a few questions from your DevLab. Then use a GPU Job to fine-tune it on a character's dialogue and serve the result through another endpoint. The dialogue comes from Shakespeare plays or public-domain character roleplay: Dracula, Sherlock Holmes, Odysseus, Dorian Gray, and the Cheshire Cat. This is an excuse to give a model a voice, and a soul  and to discover what the GPU actually has to hold while you do it.
+In this practical, you will try Nebius Serverless AI with a model from the [Qwen2.5 family](https://huggingface.co/collections/Qwen/qwen25). First, deploy a model behind an API and ask it a few questions from your DevLab. Then use a GPU Job to fine-tune it on a character's dialogue and serve the result through another endpoint. The dialogue comes from Shakespeare plays or public-domain character roleplay: Dracula, Sherlock Holmes, Odysseus, Dorian Gray, and the Cheshire Cat. This is an excuse to give a model a voice and a soul  and to discover what the GPU actually has to hold while you do it.
 
 You will use a **Job** for training, which finishes after running the task, and an **Endpoint** for inference, which stays available for requests. The DevLab is where you edit the training configuration and run the small [notebook](lab.ipynb). The containers already have the serving or training software installed. You do not have to build them.
 
@@ -10,14 +10,15 @@ You will use a **Job** for training, which finishes after running the task, and 
 
 A language model takes the tokens it has seen so far and predicts the next one. A token can be a word, part of a word, or punctuation. Transformer-based models such as Qwen2.5 generate one token after another; their learned weights encode patterns that let them produce useful answers. The **B** in 7B means *billion* parameters. You can now guess why they are called *large* language models. The family includes [0.5B](https://huggingface.co/Qwen/Qwen2.5-0.5B), [7B](https://huggingface.co/Qwen/Qwen2.5-7B), [14B](https://huggingface.co/Qwen/Qwen2.5-14B), and larger sizes.
 
-A weight is a number stored as bits, the 0s and 1s in computer memory. Eight bits make one byte. There are different ways to represent numbers with those bits: **FP32** is a 32-bit floating-point format (4 bytes per weight), while **BF16** uses 16 bits (2 bytes). BF16 uses less memory at the cost of numerical precision; we do not need the details of its encoding here. For a first estimate, use:
+A weight is a number stored as bits, the 0s and 1s in computer memory. Eight bits make one byte. There are different ways to represent numbers with those bits: **FP32** is a 32-bit floating-point format (4 bytes per weight), while **BF16** uses 16 bits (2 bytes). BF16 uses less memory at the cost of numerical precision. We do not need the details of its encoding here, but for a first estimate of the memory required by a model, use:
 
 ```text
 weight memory (bytes) ≈ number of parameters × bytes per parameter
 weight memory (GB)    ≈ weight memory (bytes) / 1,000,000,000
 ```
 
-Ignoring everything else, a 7B model needs roughly **28 GB in FP32 or 14 GB in BF16**. BF16 is widely used for LLM workloads because it halves weight storage compared with FP32 while usually retaining enough precision for training and inference. These are rounded model sizes and decimal GB; the exact checkpoint may differ.
+Ignoring everything else, a 7B model needs roughly **28 GB in FP32 or 14 GB in BF16**. BF16 is widely used for LLM workloads because it halves weight storage compared with FP32 while usually retaining enough precision for training and inference (BF16 preserves FP32’s wide range of representable values—roughly from 10⁻³⁸ to 10³⁸—at the cost of reduced numerical precision. In practice, this wide range is often more valuable than extremely fine precision for model training and inference).
+
 
 The NVIDIA L40S in this exercise has [48 GB of GPU memory](https://www.nvidia.com/en-us/data-center/graphics-cards-for-virtualization/). The preset also lists 64 GiB of system RAM, which is a different pool. The GPU does the calculations and reads the model's weights again and again as it generates tokens. Its own high-bandwidth memory can supply those weights much faster than transferring them from system RAM, so in this setup the weights need to fit on the GPU. **Before creating an endpoint, estimate the BF16 weight memory for 14B and 32B. Which one looks plausible on one L40S?** Leave room beyond the weights.
 
@@ -25,13 +26,21 @@ Why the extra room? At each Transformer layer, a token produces attention **keys
 
 Training needs more. Besides weights, it keeps **activations**: intermediate results produced as examples pass through the layers. Some are needed again when the model calculates how to update its weights. Training also stores a **gradient** for each trainable weight and optimizer state. Adam optimizer, for example, tracks two running values per trainable weight. If we *pretend* all these values use BF16, full fine-tuning needs **2 bytes for a weight + 2 for its gradient + 2 + 2 for Adam = 8 bytes per parameter**, before activations. **Try this calculation for 7B. Does it fit in 48 GB?** Real optimizer states may use FP32, so the estimate can be optimistic. A larger microbatch processes more examples together: it usually needs more activation memory, while averaging more examples can make the gradient less noisy. [PyTorch's activation-memory guide](https://docs.pytorch.org/tutorials/beginner/mosaic_memory_profiling_tutorial.html) shows why keeping intermediate results matters.
 
-**LoRA** takes a smaller route. Instead of changing a large weight matrix directly, it learns a correction represented by two much narrower matrices. Their width is controlled by the **rank** (`lora_r` in our YAML). The original model weights stay frozen; the learned matrices form an **adapter**. The full base model still has to fit, but gradients and optimizer states are needed only for the adapter. The saved adapter is small and must be loaded *with* that same base model to produce the new behaviour. [This LoRA explanation](https://huggingface.co/docs/peft/main/task_guides/lora_based_methods) goes further if you are curious.
 
+[![Full parameter fine-tuning compared with LoRA fine-tuning](images/training_memory_profiling_pytorch.webp)](https://pytorch.org/blog/understanding-gpu-memory-1/)
+
+*GPU memory ptofile over several steps of training. Source: [Pytorch Blog](https://pytorch.org/blog/understanding-gpu-memory-1/).*
+
+**LoRA** leaves the model’s original weights frozen and learns only a small update for each selected weight matrix. Instead of storing a full-sized update, it represents that update as the product of two smaller matrices (A and B in the image) . Their inner dimension is the **rank** (`lora_r` in our YAML): a lower rank uses less memory but limits how much the model can change. These learned matrices form the **adapter**, so gradients and optimizer states are needed only for them. The full base model must still fit in memory, and the saved adapter must be loaded with the same base model to produce the fine-tuned behaviour. [This LoRA explanation](https://huggingface.co/docs/peft/main/task_guides/lora_based_methods) goes further if you are curious.
+
+[![Full parameter fine-tuning compared with LoRA fine-tuning](images/full_parameter_fine_tuning_vs_lora_fine_tuning.webp)](https://www.geeksforgeeks.org/deep-learning/low-rank-adaptation-lora/)
+
+*Full parameter fine-tuning updates all weights, while LoRA trains only small adapter matrices. Source: [GeeksforGeeks](https://www.geeksforgeeks.org/deep-learning/low-rank-adaptation-lora/).*
 ## Put a model behind an API
 
 Open the Nebius console and go to **Serverless AI → Endpoints → Create endpoint → Custom**. An endpoint starts a container, runs a command in it and exposes the port as an HTTPS API. Inside that container, [vLLM](https://docs.vllm.ai/en/latest/serving/openai_compatible_server/) loads the model onto the GPU, manages requests and its KV cache, and returns generated text through an API compatible with the OpenAI Python SDK. Later it will also let us select the base model or its LoRA adapter by model name.
 
-Use these values for the first endpoint. Give it a name you will recognize, such as `my-base-model`.
+Use these values for the first endpoint. Give it a name you will recognize, such as `my-base-model` or your group name.
 
 | Console field | Value |
 |---|---|
@@ -49,11 +58,12 @@ The image contains vLLM and its dependencies. Its entrypoint command tells it wh
 python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --host 0.0.0.0 --port 8000
 ```
 
-`--dtype` selects BF16, `--max-model-len` limits the total input and output context, and `--gpu-memory-utilization` sets vLLM's GPU-memory budget. **Use your weight-memory estimate to choose a model before you launch it.** Could it fit with room for the KV cache and serving overhead? Which is the largest size you would try on this GPU, and what might stop it from working even if its weights fit? Change `--model`, create the endpoint and wait for it to become ready. Copy its HTTPS URL from **Network → Public endpoints**. The [Nebius endpoint guide](https://docs.nebius.com/serverless/tutorials/deploy-model) shows this console flow.
+`--dtype` selects BF16, `--max-model-len` limits the total input and output context, and `--gpu-memory-utilization` sets vLLM's GPU-memory budget. **Use your weight-memory estimate to choose a model before you launch it.** Could it fit with room for the KV cache and serving overhead (assume at least 5 extra GB needed)? Which is the largest size you would try on this GPU? Change `--model`, create the endpoint and wait for it to become ready. Copy its HTTPS URL from **Copy enpoint URL → Public endpoint**. The [Nebius endpoint guide](https://docs.nebius.com/serverless/tutorials/deploy-model) shows this console flow.
 
-Open [the notebook](lab.ipynb), paste the URL, and play with its ready-made questions. Ask one of your own, too. Then open the endpoint's **Logs** tab. During startup, look for the model name, dtype, maximum sequence length, and the line that reports GPU memory use. How does the reported memory compare with your weight-only estimate? Can you spot the memory set aside for the KV cache? After sending a notebook request, look for `POST /v1/chat/completions` with `200 OK` and an engine log showing prompt or generation throughput. What changes while a request is running?
+Open [the notebook](lab.ipynb), paste the URL, and play with its ready-made questions. Ask one of your own, too. Then open the endpoint's **Logs** tab in the Nebius Console. During startup, look for the model name, dtype, maximum sequence length, and the line that reports GPU memory use. How does the reported memory compare with your weight-only estimate? Can you spot the memory set aside for the KV cache? After sending a notebook request, look for `POST /v1/chat/completions` with `200 OK` and an engine log showing prompt or generation throughput. In the **Metrics** tab you can monitor the state of the virtual machine on which the endpoint is running. Click on **GPU metrics** and send a request from the notebook. What changes while a request is running? (Metrics tab can sometimes be buggy, so if nothing happend do not worry too much and go ahaed with the practical) 
 
-The logs make the memory budget more concrete than a single dashboard number. In one Qwen2.5-14B test, vLLM reported 27.88 GiB for weights and non-PyTorch memory, 2.04 GiB for peak activations, 0.29 GiB for CUDA graphs, and 7.82 GiB for the KV cache. Your values will depend on the model and settings. The KV cache holds attention keys and values for tokens already processed; vLLM's logs also estimate how many tokens and simultaneous requests fit in that cache. Look for a JIT-compilation warning too: it reports extra compilation during inference, which can make a request slower.
+The logs make the memory budget more concrete than a single dashboard number. In one Qwen2.5-14B test, vLLM reported 27.88 GiB for weights and non-PyTorch memory, 2.04 GiB for peak activations, 0.29 GiB for CUDA graphs, and 7.82 GiB for the KV cache. Your values will depend on the model and settings. The KV cache holds attention keys and values for tokens already processed; vLLM's logs also estimate how many tokens and simultaneous requests fit in that cache. 
+
 
 Once you have played with it, stop this first endpoint; the final endpoint will let you query both the base and adapted model on one GPU.
 
@@ -111,11 +121,11 @@ In the console, open **Serverless AI → Jobs → Create job**. Choose the **Axo
 | Image path | `docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1` |
 | Compute, disk, network | L40S, 1 GPU / 16 vCPUs / 64 GiB RAM, 100 GiB disk, your project's default subnet |
 | Timeout | 1 hour |
-| First mounted volume | `workshop-input` at `/inputs`, read-only |
-| Second mounted volume | `workshop-outputs` at `/outputs`, read-write |
+| First mounted volume | `uu-workshop-input` at `/inputs`, read-only |
+| Second mounted volume | `uu-workshop-output` at `/outputs`, read-write |
 | Files | Paste or upload your entire edited YAML at `/config/axolotl.yaml` |
 
-A mounted Object Storage bucket appears as files in the container. For example, `s3://workshop-input/datasets/shakespeare/train.jsonl` becomes `/inputs/datasets/shakespeare/train.jsonl`. The input mount supplies datasets and the runner script; the output mount receives the adapter and run artifacts. In **Files**, paste the YAML from your editor, or download it from JupyterLab and upload it from your computer. See [Nebius's Job guide](https://docs.nebius.com/serverless/jobs/manage) for those controls.
+A mounted Object Storage bucket appears as files in the container. For example, `s3://uu-workshop-input/datasets/shakespeare/train.jsonl` becomes `/inputs/datasets/shakespeare/train.jsonl`. The input mount supplies datasets and the runner script; the output mount receives the adapter and run artifacts. In **Files**, paste the YAML from your editor, or download it from JupyterLab and upload it from your computer. See [Nebius's Job guide](https://docs.nebius.com/serverless/jobs/manage) for those controls.
 
 Give the entrypoint this command. Choose a short group name and a unique run ID; use a new ID for each training attempt:
 
@@ -139,7 +149,7 @@ Finally, find the lines saying where Axolotl saved the model and where the works
 
 ## Put the character on stage
 
-Once training has finished, browse **Storage → Object Storage → workshop-outputs → your group → runs → your run ID**. The run folder contains `loss.svg`, `loss.csv`, `comparison.md`, `training.log`, and an `adapter/` directory. Take a few minutes to inspect the results before deploying anything.
+Once training has finished, browse **Storage → Object Storage → uu-workshop-output → your group → runs → your run ID**. The run folder contains `loss.svg`, `loss.csv`, `comparison.md`, `training.log`, and an `adapter/` directory. Take a few minutes to inspect the results before deploying anything.
 
 Start with `loss.svg`. Where is the validation loss lowest, and which checkpoint does the plot mark as best? Compare that step with `max_steps` in your YAML and the final step in `training.log`: did the run use the full step budget? `max_steps` is a limit, not a promise that every run reaches it. This configuration has `early_stopping_patience: 2`, so training can stop after two evaluations without an improvement in validation loss. With `load_best_model_at_end: true`, the adapter saved for you comes from the checkpoint with the best validation loss; it may not be the last step that ran.
 
@@ -147,7 +157,7 @@ Then open `comparison.md`. It shows the base model and the adapter answering the
 
 Finally, open `adapter/` and check that `adapter_config.json` and `adapter_model.safetensors` are present. `adapter_config.json` records the exact base model and LoRA rank. You will use this adapter folder's path when you configure the next endpoint.
 
-Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. Mount `workshop-outputs` at `/outputs` **read-only**. Use the exact base model and rank from `adapter_config.json`. Replace `my-group` and `run-1` below with the group name and run ID you chose:
+Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. Mount `uu-workshop-output` at `/outputs` **read-only**. Use the exact base model and rank from `adapter_config.json`. Replace `my-group` and `run-1` below with the group name and run ID you chose:
 
 ```bash
 python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules character=/outputs/my-group/runs/run-1/adapter --host 0.0.0.0 --port 8000

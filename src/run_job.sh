@@ -13,7 +13,7 @@ RUN_LABEL=${RUN_LABEL:-}
 
 # Use a supplied run ID when requested; otherwise make one unique to this job.
 if [[ -n "$REQUESTED_RUN_ID" ]]; then
-  [[ "$REQUESTED_RUN_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid run ID: $REQUESTED_RUN_ID (use lowercase letters, numbers, and hyphens)" >&2; exit 2; }
+  [[ "$REQUESTED_RUN_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]] || { echo "Invalid run ID: $REQUESTED_RUN_ID (use letters, numbers, and hyphens)" >&2; exit 2; }
   RUN_ID="$REQUESTED_RUN_ID"
 else
   RUN_ID="run-${RUN_LABEL:+$RUN_LABEL-}$(date -u +%Y%m%dT%H%M%SZ)-$$"

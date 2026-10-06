@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PROJECT_ID=${NEBIUS_PARENT_ID:-project-e00qv62ppr00qnw83re3az}
-SUBNET_ID=${NEBIUS_SUBNET_ID:-vpcsubnet-e00pemmjzw1rtz7nz0}
-INPUT_BUCKET_ID=${NEBIUS_INPUT_BUCKET_ID:-storagebucket-e0016188093964268922151}
-OUTPUT_BUCKET_ID=${NEBIUS_OUTPUT_BUCKET_ID:-storagebucket-e003360829724144205545}
+PROJECT_ID=${NEBIUS_PARENT_ID:-project-e00kjyj0pr00mf5kcczh6n}
+SUBNET_ID=${NEBIUS_SUBNET_ID:-vpcsubnet-e00epty88k87jrawhx}
+INPUT_BUCKET_ID=${NEBIUS_INPUT_BUCKET_ID:-storagebucket-e009119238704004704039}
+OUTPUT_BUCKET_ID=${NEBIUS_OUTPUT_BUCKET_ID:-storagebucket-e005649953926204087405}
 GROUP_ID=${WORKSHOP_GROUP_ID:-demo}
 RELEASE=${WORKSHOP_RELEASE:-v1}
 RUN_LABEL=${WORKSHOP_RUN_LABEL:-}
@@ -16,7 +16,7 @@ IMAGE=docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1
 [[ "$GROUP_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid group ID: $GROUP_ID" >&2; exit 2; }
 [[ "$RELEASE" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "Invalid release: $RELEASE" >&2; exit 2; }
 [[ -z "$RUN_LABEL" || "$RUN_LABEL" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid run label: $RUN_LABEL" >&2; exit 2; }
-[[ -z "$RUN_ID" || "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid run ID: $RUN_ID" >&2; exit 2; }
+[[ -z "$RUN_ID" || "$RUN_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]] || { echo "Invalid run ID: $RUN_ID" >&2; exit 2; }
 
 JOB_PREFIX=${RUN_LABEL:-shakespeare}
 JOB_NAME="$JOB_PREFIX-$GROUP_ID-$(date -u +%Y%m%d%H%M%S)"
