@@ -1,6 +1,6 @@
 # One starting point for any voice. Edit both dataset paths and the model.
 # For Shakespeare, see PRACTICAL.md for the different training schedule.
-base_model: Qwen/Qwen2.5-7B
+base_model: Qwen/Qwen2.5-14B
 datasets:
   - path: /inputs/datasets/public-domain/the-cheshire-cat/train.jsonl
     type: chat_template

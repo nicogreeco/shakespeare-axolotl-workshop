@@ -10,8 +10,10 @@ GROUP_ID=${WORKSHOP_GROUP_ID:-demo}
 RELEASE=${WORKSHOP_RELEASE:-v1}
 RUN_LABEL=${WORKSHOP_RUN_LABEL:-}
 RUN_ID=${WORKSHOP_RUN_ID:-}
-CONFIG_PATH=${AXOLOTL_CONFIG_PATH:-$ROOT/axolotl.yaml}
-DISK_SIZE=${NEBIUS_DISK_SIZE:-100Gi}
+CONFIG_PATH=${AXOLOTL_CONFIG_PATH:-$ROOT/training.yaml}
+DISK_SIZE=${NEBIUS_DISK_SIZE:-200Gi}
+PLATFORM=${NEBIUS_PLATFORM:-gpu-h100-sxm}
+PRESET=${NEBIUS_PRESET:-1gpu-16vcpu-200gb}
 IMAGE=docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1
 [[ "$GROUP_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid group ID: $GROUP_ID" >&2; exit 2; }
 [[ "$RELEASE" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "Invalid release: $RELEASE" >&2; exit 2; }
@@ -27,8 +29,8 @@ options=(
   --name "$JOB_NAME"
   --parent-id "$PROJECT_ID"
   --image "$IMAGE"
-  --platform gpu-l40s-a
-  --preset 1gpu-16vcpu-64gb
+  --platform "$PLATFORM"
+  --preset "$PRESET"
   --disk-size "$DISK_SIZE"
   --timeout 4h
   --volume "$INPUT_BUCKET_ID:/inputs:ro"

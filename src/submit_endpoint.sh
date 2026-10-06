@@ -5,10 +5,12 @@ PROJECT_ID=${NEBIUS_PARENT_ID:-project-e00kjyj0pr00mf5kcczh6n}
 SUBNET_ID=${NEBIUS_SUBNET_ID:-vpcsubnet-e00epty88k87jrawhx}
 OUTPUT_BUCKET_ID=${NEBIUS_OUTPUT_BUCKET_ID:-storagebucket-e005649953926204087405}
 GROUP_ID=${WORKSHOP_GROUP_ID:-demo}
-MODEL_ID=${VLLM_MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}
+MODEL_ID=${VLLM_MODEL_ID:-Qwen/Qwen2.5-14B}
 ADAPTER_NAME=${VLLM_ADAPTER_NAME:-$GROUP_ID}
 IMAGE=${VLLM_IMAGE:-docker.io/vllm/vllm-openai:latest}
-DISK_SIZE=${NEBIUS_DISK_SIZE:-100Gi}
+DISK_SIZE=${NEBIUS_DISK_SIZE:-200Gi}
+PLATFORM=${NEBIUS_PLATFORM:-gpu-h100-sxm}
+PRESET=${NEBIUS_PRESET:-1gpu-16vcpu-200gb}
 ENDPOINT_AUTH=${NEBIUS_ENDPOINT_AUTH:-none}
 
 BASE_ONLY=false
@@ -32,18 +34,18 @@ ENDPOINT_NAME="shakespeare-$GROUP_ID-$(date -u +%Y%m%d%H%M%S)"
 if [[ "$BASE_ONLY" == true ]]; then
   ENDPOINT_KIND=base
   ENDPOINT_NAME="base-$GROUP_ID-$(date -u +%Y%m%d%H%M%S)"
-  SERVER_ARGS="-c \"python3 -m vllm.entrypoints.openai.api_server --model $MODEL_ID --host 0.0.0.0 --port 8000\""
+  SERVER_ARGS="-c \"python3 -m vllm.entrypoints.openai.api_server --model $MODEL_ID --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --host 0.0.0.0 --port 8000\""
 else
   ADAPTER_PATH="/outputs/$GROUP_ID/runs/$RUN_ID/adapter"
-  SERVER_ARGS="-c \"python3 -m vllm.entrypoints.openai.api_server --model $MODEL_ID --enable-lora --lora-modules $ADAPTER_NAME=$ADAPTER_PATH --host 0.0.0.0 --port 8000\""
+  SERVER_ARGS="-c \"python3 -m vllm.entrypoints.openai.api_server --model $MODEL_ID --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules $ADAPTER_NAME=$ADAPTER_PATH --host 0.0.0.0 --port 8000\""
 fi
 
 options=(
   --name "$ENDPOINT_NAME"
   --parent-id "$PROJECT_ID"
   --image "$IMAGE"
-  --platform gpu-l40s-a
-  --preset 1gpu-16vcpu-64gb
+  --platform "$PLATFORM"
+  --preset "$PRESET"
   --disk-size "$DISK_SIZE"
   --subnet-id "$SUBNET_ID"
   --container-command bash

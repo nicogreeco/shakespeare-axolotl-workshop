@@ -8,7 +8,7 @@ You will use a **Job** for training, which finishes after running the task, and 
 
 ## Every token counts
 
-A language model takes the tokens it has seen so far and predicts the next one. A token can be a word, part of a word, or punctuation. Transformer-based models such as Qwen2.5 generate one token after another; their learned weights encode patterns that let them produce useful answers. The **B** in 7B means *billion* parameters. You can now guess why they are called *large* language models. The family includes [0.5B](https://huggingface.co/Qwen/Qwen2.5-0.5B), [7B](https://huggingface.co/Qwen/Qwen2.5-7B), [14B](https://huggingface.co/Qwen/Qwen2.5-14B), and larger sizes.
+A language model takes the tokens it has seen so far and predicts the next one. A token can be a word, part of a word, or punctuation. Transformer-based models such as Qwen2.5 generate one token after another; their learned weights encode patterns that let them produce useful answers. The **B** in 7B means *billion* parameters. You can now guess why they are called *large* language models. The family includes [7B](https://huggingface.co/Qwen/Qwen2.5-7B), [14B](https://huggingface.co/Qwen/Qwen2.5-14B), [32B](https://huggingface.co/Qwen/Qwen2.5-32B), [72B](https://huggingface.co/Qwen/Qwen2.5-72B), and other sizes.
 
 A weight is a number stored as bits, the 0s and 1s in computer memory. Eight bits make one byte. There are different ways to represent numbers with those bits: **FP32** is a 32-bit floating-point format (4 bytes per weight), while **BF16** uses 16 bits (2 bytes). BF16 uses less memory at the cost of numerical precision. We do not need the details of its encoding here, but for a first estimate of the memory required by a model, use:
 
@@ -20,18 +20,18 @@ weight memory (GB)    ≈ weight memory (bytes) / 1,000,000,000
 Ignoring everything else, a 7B model needs roughly **28 GB in FP32 or 14 GB in BF16**. BF16 is widely used for LLM workloads because it halves weight storage compared with FP32 while usually retaining enough precision for training and inference (BF16 preserves FP32’s wide range of representable values—roughly from 10⁻³⁸ to 10³⁸—at the cost of reduced numerical precision. In practice, this wide range is often more valuable than extremely fine precision for model training and inference).
 
 
-The NVIDIA L40S in this exercise has [48 GB of GPU memory](https://www.nvidia.com/en-us/data-center/graphics-cards-for-virtualization/). The preset also lists 64 GiB of system RAM, which is a different pool. The GPU does the calculations and reads the model's weights again and again as it generates tokens. Its own high-bandwidth memory can supply those weights much faster than transferring them from system RAM, so in this setup the weights need to fit on the GPU. **Before creating an endpoint, estimate the BF16 weight memory for 14B and 32B. Which one looks plausible on one L40S?** Leave room beyond the weights.
+The NVIDIA H100 in this exercise has [80 GB of GPU memory](https://www.nvidia.com/en-us/data-center/h100/). The preset also lists 200 GiB of system RAM, which is a different pool. The GPU does the calculations and reads the model's weights again and again as it generates tokens. Its own high-bandwidth memory can supply those weights much faster than transferring them from system RAM, so in this setup the weights need to fit on the GPU. **Before creating an endpoint, estimate the BF16 weight memory for 32B and 72B. Which one looks plausible on one H100?** Leave room beyond the weights.
 
 Why the extra room? At each Transformer layer, a token produces attention **keys** and **values**. When the model generates the next token, it can reuse the earlier ones instead of recalculating the whole conversation. The stored keys and values are the **KV cache**. Longer conversations and more simultaneous requests need more cache; for a fixed model, its size grows roughly with the number of cached tokens. Our prompts are short, but the cache and other serving buffers still need GPU memory.
 
-Training needs more. Besides weights, it keeps **activations**: intermediate results produced as examples pass through the layers. Some are needed again when the model calculates how to update its weights. Training also stores a **gradient** for each trainable weight and optimizer state. Adam optimizer, for example, tracks two running values per trainable weight. If we *pretend* all these values use BF16, full fine-tuning needs **2 bytes for a weight + 2 for its gradient + 2 + 2 for Adam = 8 bytes per parameter**, before activations. **Try this calculation for 7B. Does it fit in 48 GB?** Real optimizer states may use FP32, so the estimate can be optimistic. A larger microbatch processes more examples together: it usually needs more activation memory, while averaging more examples can make the gradient less noisy. [PyTorch's activation-memory guide](https://docs.pytorch.org/tutorials/beginner/mosaic_memory_profiling_tutorial.html) shows why keeping intermediate results matters.
+Training needs more. Besides weights, it keeps **activations**: intermediate results produced as examples pass through the layers. Some are needed again when the model calculates how to update its weights. Training also stores a **gradient** for each trainable weight and optimizer state. Adam optimizer, for example, tracks two running values per trainable weight. If we *pretend* all these values use BF16, full fine-tuning needs **2 bytes for a weight + 2 for its gradient + 2 + 2 for Adam = 8 bytes per parameter**, before activations. **Try this calculation for 14B. Does it fit in 80 GB?** Real optimizer states may use FP32, so the estimate can be optimistic. A larger microbatch processes more examples together: it usually needs more activation memory, while averaging more examples can make the gradient less noisy. [PyTorch's activation-memory guide](https://docs.pytorch.org/tutorials/beginner/mosaic_memory_profiling_tutorial.html) shows why keeping intermediate results matters.
 
 
 [![Full parameter fine-tuning compared with LoRA fine-tuning](images/training_memory_profiling_pytorch.webp)](https://pytorch.org/blog/understanding-gpu-memory-1/)
 
-*GPU memory ptofile over several steps of training. Here a different optimizer is used (vanilla SGD with momentum), with a single value stored for each weight, as a result the memory requirment for optim is same as parameters.  Source: [Pytorch Blog](https://pytorch.org/blog/understanding-gpu-memory-1/).*
+*GPU memory profile over several training steps. This example uses vanilla SGD with momentum, which stores one optimizer value per weight; as a result, optimizer memory is the same as parameter memory. Source: [PyTorch Blog](https://pytorch.org/blog/understanding-gpu-memory-1/).*
 
-**LoRA** leaves the model’s original weights frozen and learns only a small update for each selected weight matrix. Instead of storing a full-sized update, it represents that update as the product of two smaller matrices (A and B in the image) . Their inner dimension is the **rank** (`lora_r` in our YAML): a lower rank uses less memory but limits how much the model can change. These learned matrices form the **adapter**, so gradients and optimizer states are needed only for them. The full base model must still fit in memory, and the saved adapter must be loaded with the same base model to produce the fine-tuned behaviour. [This LoRA explanation](https://huggingface.co/docs/peft/main/task_guides/lora_based_methods) goes further if you are curious.
+**LoRA** leaves the model’s original weights frozen and learns only a small update for each selected weight matrix. Instead of storing a full-sized update, it represents that update as the product of two smaller matrices (A and B in the image). Their inner dimension is the **rank** (`lora_r` in our YAML): a lower rank uses less memory but limits how much the model can change. These learned matrices form the **adapter**, so gradients and optimizer states are needed only for them. The full base model must still fit in memory, and the saved adapter must be loaded with the same base model to produce the fine-tuned behaviour. [This LoRA explanation](https://huggingface.co/docs/peft/main/task_guides/lora_based_methods) goes further if you are curious.
 
 [![Full parameter fine-tuning compared with LoRA fine-tuning](images/full_parameter_fine_tuning_vs_lora_fine_tuning.webp)](https://www.geeksforgeeks.org/deep-learning/low-rank-adaptation-lora/)
 
@@ -46,23 +46,23 @@ Use these values for the first endpoint. Give it a name you will recognize, such
 |---|---|
 | Image path | `docker.io/vllm/vllm-openai:latest` |
 | Port | `8000` (HTTP) |
-| Compute | GPU, regular NVIDIA L40S; 1 GPU, 16 vCPUs, 64 GiB RAM |
-| Container disk | 100 GiB |
+| Compute | GPU, regular NVIDIA H100; 1 GPU, 16 vCPUs, 200 GiB RAM |
+| Container disk | 200 GiB |
 | Network / subnet | The available default for your project |
 | Bearer-token authentication | Off for this classroom endpoint |
 | Mounted volumes | None |
 
-The image contains vLLM and its dependencies. Its entrypoint command tells it which model to download and how to run the API. The command below uses 7B as an example; replace the value after `--model` with the size you choose:
+The image contains vLLM and its dependencies. Its entrypoint command tells it which model to download and how to run the API. The command below uses 14B as an example; replace the value after `--model` with the size you choose:
 
 ```bash
-python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --host 0.0.0.0 --port 8000
+python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-14B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --host 0.0.0.0 --port 8000
 ```
 
-`--dtype` selects BF16, `--max-model-len` limits the total input and output context, and `--gpu-memory-utilization` sets vLLM's GPU-memory budget. **Use your weight-memory estimate to choose a model before you launch it.** Could it fit with room for the KV cache and serving overhead (assume at least 5 extra GB needed)? Which is the largest size you would try on this GPU? Change `--model`, create the endpoint and wait for it to become ready. Copy its HTTPS URL from **Copy enpoint URL → Public endpoint**. The [Nebius endpoint guide](https://docs.nebius.com/serverless/tutorials/deploy-model) shows this console flow.
+`--dtype` selects BF16, `--max-model-len` limits the total input and output context, and `--gpu-memory-utilization` sets vLLM's GPU-memory budget. **Use your weight-memory estimate to choose a model before you launch it.** Could it fit with room for the KV cache and serving overhead (assume at least 5 extra GB needed)? Which is the largest size you would try on this GPU? Change `--model`, create the endpoint and wait for it to become ready. Copy its HTTPS URL from **Copy endpoint URL → Public endpoint**. The [Nebius endpoint guide](https://docs.nebius.com/serverless/tutorials/deploy-model) shows this console flow.
 
-Open [the notebook](lab.ipynb), paste the URL, and play with its ready-made questions. Ask one of your own, too. Then open the endpoint's **Logs** tab in the Nebius Console. During startup, look for the model name, dtype, maximum sequence length, and the line that reports GPU memory use. How does the reported memory compare with your weight-only estimate? Can you spot the memory set aside for the KV cache? After sending a notebook request, look for `POST /v1/chat/completions` with `200 OK` and an engine log showing prompt or generation throughput. In the **Metrics** tab you can monitor the state of the virtual machine on which the endpoint is running. Click on **GPU metrics** and send a request from the notebook. What changes while a request is running? (Metrics tab can sometimes be buggy, so if nothing happend do not worry too much and go ahaed with the practical) 
+Open [the notebook](lab.ipynb), paste the URL, and play with its ready-made questions. Ask one of your own, too. Then open the endpoint's **Logs** tab in the Nebius Console. During startup, look for the model name, dtype, maximum sequence length, and the line that reports GPU memory use. How does the reported memory compare with your weight-only estimate? Can you spot the memory set aside for the KV cache? After sending a notebook request, look for `POST /v1/chat/completions` with `200 OK` and an engine log showing prompt or generation throughput. In the **Metrics** tab you can monitor the state of the virtual machine on which the endpoint is running. Click on **GPU metrics** and send a request from the notebook. What changes while a request is running? (The Metrics tab can sometimes be buggy, so if nothing happens, do not worry too much and continue with the practical.)
 
-The logs make the memory budget more concrete than a single dashboard number. In one Qwen2.5-14B test, vLLM reported 27.88 GiB for weights and non-PyTorch memory, 2.04 GiB for peak activations, 0.29 GiB for CUDA graphs, and 7.82 GiB for the KV cache. Your values will depend on the model and settings. The KV cache holds attention keys and values for tokens already processed; vLLM's logs also estimate how many tokens and simultaneous requests fit in that cache. 
+The logs make the memory budget more concrete than a single dashboard number. In one Qwen2.5-32B test with the command above, vLLM used 61.97 GiB for weights and other non-PyTorch memory, 3.18 GiB for peak activations, 0.62 GiB for CUDA graphs, and 2.15 GiB for the KV cache. That cache held 8,800 tokens, or about four concurrent requests at the 2,048-token limit. Your values will depend on the image and settings. The KV cache holds attention keys and values for tokens already processed; vLLM's logs also estimate how many tokens and simultaneous requests fit in that cache.
 
 
 Once you have played with it, stop this first endpoint; the final endpoint will let you query both the base and adapted model on one GPU.
@@ -93,11 +93,11 @@ If the datasets are visible in your DevLab, open a `train.jsonl` file and look a
 
 Open [training.yaml](training.yaml). This one YAML file is the starting point for every voice. [Axolotl](https://docs.axolotl.ai/) reads it to load the model and data, train LoRA, and choose checkpoints. Find `base_model`, `datasets`, `test_datasets`, `sequence_len`, `bf16`, and `lora_r`. **What is the longest training sequence this configuration allows? What precision will the job use? What LoRA parameters are used?**
 
-Edit *both* dataset paths to your chosen directory, keeping `train.jsonl` for training and `validation.jsonl` for validation. Set `base_model` to the size you want to train: `Qwen/Qwen2.5-0.5B`, `Qwen/Qwen2.5-7B`, or `Qwen/Qwen2.5-14B`. If you want to compare with your first endpoint, use the same base model. Otherwise the final endpoint can still compare the adapted model with its own base model.
+Edit *both* dataset paths to your chosen directory, keeping `train.jsonl` for training and `validation.jsonl` for validation. Set `base_model` to the size you want to train: `Qwen/Qwen2.5-7B`, `Qwen/Qwen2.5-14B`, or `Qwen/Qwen2.5-32B`. If you want to compare with your first endpoint, use the same base model. Otherwise the final endpoint can still compare the adapted model with its own base model. The default 14B model is the balanced choice; 7B is faster, while 32B uses most of the H100's memory and is the ambitious option.
 
-The default YAML is tuned for the Cheshire Cat at 7B. For the other characters, keep its training schedule. For Shakespeare, change `learning_rate` to `0.0002`, `max_steps` to `500`, `warmup_steps` to `10`, and `eval_steps` and `save_steps` to `125`. The longer dataset can support a longer run; we use a smaller learning rate and fewer steps for the short character datasets to limit overfitting.
+The default YAML is tuned for the Cheshire Cat at 14B. For the other characters, keep its training schedule. For Shakespeare, change `learning_rate` to `0.0002`, `max_steps` to `500`, `warmup_steps` to `10`, and `eval_steps` and `save_steps` to `125`. The longer dataset can support a longer run; we use a smaller learning rate and fewer steps for the short character datasets to limit overfitting.
 
-Keep `lora_r: 16`, `micro_batch_size: 4`, and `gradient_accumulation_steps: 4` for a first 0.5B or 7B run. A **microbatch** of four means four examples are processed together. Axolotl accumulates gradients from four such microbatches before updating the adapter, so one update sees an **effective batch of 4 × 4 = 16 examples** on our single GPU. This gives a larger effective batch without holding all 16 examples' activations at once. Gradient checkpointing in the YAML saves more memory by recomputing some intermediate values.
+Keep `lora_r: 16`, `micro_batch_size: 4`, and `gradient_accumulation_steps: 4` for a first 7B, 14B, or 32B run. A **microbatch** of four means four examples are processed together. Axolotl accumulates gradients from four such microbatches before updating the adapter, so one update sees an **effective batch of 4 × 4 = 16 examples** on our single GPU. This gives a larger effective batch without holding all 16 examples' activations at once. Gradient checkpointing in the YAML saves more memory by recomputing some intermediate values.
 
 **What about the training memory for your model?** Build the estimate rather than starting from the formula. For rank 16, assume that the adapter contains roughly **0.5% of the base parameters**, so `A ≈ 0.005 × P`.
 
@@ -114,9 +114,9 @@ LoRA training state (bytes) ≈ ___P + ___A
 
 Write down your reasoning before continuing. You can check your answer in the Solutions section at the end of this practical.
 
-**Estimate this for 7B and 14B, then leave at least another 5 GB for activations, temporary buffers and the runtime. Which would you try on 48 GB?** This is a rough budget, adapter states can use a different precision, and activations depend on sequence length and microbatch. [Axolotl's sizing guide](https://docs.axolotl.ai/docs/choosing_method.html) includes 13–14B LoRA runs on a single 48 GB GPU with short contexts and small microbatches.
+**Estimate this for 14B and 32B, then leave at least another 8 GB for activations, temporary buffers and the runtime. Which would you try on 80 GB?** This is a rough budget: adapter states can use a different precision, and activations depend on sequence length and microbatch. The 32B option is intentionally close to the limit, so a weight-only calculation is not enough.
 
-If you try 14B, use `micro_batch_size: 2` and `gradient_accumulation_steps: 8` for the same effective batch of 16; this combination has completed a run with the present configuration. If your job runs out of GPU memory, try `1` and `16`. At a microbatch of one, the next options are a shorter `sequence_len` or a smaller model. A smaller microbatch can make the run slower. You can also try `lora_r: 8` and `lora_alpha: 16` as a separate experiment. Roughly how would halving rank affect `A` and the *total* memory estimate?
+In a short Qwen2.5-32B test with this configuration, microbatch 4 peaked at 64.99 GiB allocated and 65.99 GiB reserved, so it fit on the 80 GB H100 with useful headroom. Exact use depends on sequence lengths and software versions. If your 32B job runs out of memory, try `micro_batch_size: 2` and `gradient_accumulation_steps: 8`, then `1` and `16`; both keep the effective batch at 16. After that, shorten `sequence_len` or choose 14B. You can also try `lora_r: 8` and `lora_alpha: 16` as a separate experiment. Roughly how would halving rank affect `A` and the *total* memory estimate?
 
 ### Start a GPU Job
 
@@ -126,13 +126,15 @@ In the console, open **Serverless AI → Jobs → Create job**. Choose the **Axo
 |---|---|
 | Name | Something recognizable, such as `cheshire-training` |
 | Image path | `docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1` |
-| Compute, disk, network | L40S, 1 GPU / 16 vCPUs / 64 GiB RAM, 100 GiB disk, your project's default subnet |
-| Timeout | 1 hour |
+| Compute, disk, network | H100, 1 GPU / 16 vCPUs / 200 GiB RAM, 200 GiB disk, your project's default subnet |
+| Timeout | 2 hours |
 | First mounted volume | `uu-workshop-input` at `/inputs`, read-only |
 | Second mounted volume | `uu-workshop-output` at `/outputs`, read-write |
 | Files | Paste or upload your entire edited YAML at `/config/axolotl.yaml` |
 
-A mounted Object Storage bucket appears as files in the container. For example, `s3://uu-workshop-input/datasets/shakespeare/train.jsonl` becomes `/inputs/datasets/shakespeare/train.jsonl`. The input mount supplies datasets and the runner script (the same you find here in data/ and scr/); the output mount receives the adapter and run artifacts. In **Files**, paste the YAML from your editor, or download it from JupyterLab and upload it from your computer. See [Nebius's Job guide](https://docs.nebius.com/serverless/jobs/manage) for those controls.
+A mounted Object Storage bucket appears as files in the container. For example, `s3://uu-workshop-input/datasets/shakespeare/train.jsonl` becomes `/inputs/datasets/shakespeare/train.jsonl`. The input mount supplies datasets and the runner script (the same files you find here in `data/` and `src/`); the output mount receives the adapter and run artifacts. In **Files**, paste the YAML from your editor, or download it from JupyterLab and upload it from your computer. See [Nebius's Job guide](https://docs.nebius.com/serverless/jobs/manage) for those controls.
+
+The 200 GiB container disk is separate from GPU memory. It provides room for the container image, the downloaded model shards, and the Hugging Face cache; 100 GiB is not enough for the 32B option in this setup.
 
 Give the entrypoint this command. Choose a short group name and a unique run ID; use a new ID for each training attempt:
 
@@ -156,7 +158,7 @@ Finally, find the lines saying where Axolotl saved the model and where the works
 
 ## Put the character on stage
 
-Once training has finished, browse **Storage → Object Storage → uu-workshop-output → your group → runs → your run ID**. The run folder contains `loss.svg`, `loss.csv`, `comparison.md`, `training.log`, and an `adapter/` directory. Take a few minutes to inspect the results before deploying anything (you need to download them one bny one).
+Once training has finished, browse **Storage → Object Storage → uu-workshop-output → your group → runs → your run ID**. The run folder contains `loss.svg`, `loss.csv`, `comparison.md`, `training.log`, and an `adapter/` directory. Take a few minutes to inspect the results before deploying anything (you need to download them one by one).
 
 Start with `loss.svg`. Where is the validation loss lowest, and which checkpoint does the plot mark as best? Compare that step with `max_steps` in your YAML and the final step in `training.log`: did the run use the full step budget? This configuration has `early_stopping_patience: 2`, so training can stop after two evaluations without an improvement in validation loss. With `load_best_model_at_end: true`, the adapter saved for you comes from the checkpoint with the best validation loss; it may not be the last step that ran.
 
@@ -167,16 +169,16 @@ Finally, open `adapter/` and check that `adapter_config.json` and `adapter_model
 Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. This time mount `uu-workshop-output` at `/outputs`. This will make the artifacts from the training job available to the endpoint machine. Use the exact base model and rank from `adapter_config.json`. Replace `my-group` and `run-1` below with the group name and run ID you chose:
 
 ```bash
-python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules character=/outputs/my-group/runs/run-1/adapter --host 0.0.0.0 --port 8000
+python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-14B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules character=/outputs/my-group/runs/run-1/adapter --host 0.0.0.0 --port 8000
 ```
 
-The model name `character` refers to the adapter, you will be able to quiery the fine-tuned model with that model name. vLLM can [serve the base model and its LoRA adapter together](https://docs.vllm.ai/en/latest/features/lora/). Reconnect the notebook to this new endpoint. Ask the base model and `character` the same question, then try your own prompts. Does it sound more like your chosen voice? Does it still answer the question? No need to score it: have a look and play.
+The model name `character` refers to the adapter, so you can query the fine-tuned model with that name. vLLM can [serve the base model and its LoRA adapter together](https://docs.vllm.ai/en/latest/features/lora/). Reconnect the notebook to this new endpoint. Ask the base model and `character` the same question, then try your own prompts. Does it sound more like your chosen voice? Does it still answer the question? No need to score it: have a look and play.
 
 When you are done, stop the endpoints in the console so they no longer reserve a GPU. Your training outputs remain in Object Storage.
 
 ## One more voice: Nebius Token Factory
 
-Your LoRA adapter changes a model’s behaviour by learning new weights. Now try a different approach with **Nebius Token Factory**, a hosted API that provides access to larger models without deploying them on your L40S. These models may already know how Shakespeare or familiar literary characters speak, so we can steer them using a **system prompt** instead of fine-tuning them.
+Your LoRA adapter changes a model’s behaviour by learning new weights. Now try a different approach with **Nebius Token Factory**, a hosted API that provides access to larger models without deploying them on your H100. These models may already know how Shakespeare or familiar literary characters speak, so we can steer them using a **system prompt** instead of fine-tuning them.
 
 A system prompt is simply part of the text given to the model before the user’s question. Chat models are trained to treat it as a high-priority instruction, so it influences which words the model is likely to generate—for example, encouraging a Victorian tone or Shakespearean language. It does not change the model’s weights, must be sent again with each new conversation, and different models may follow it with different levels of consistency.
 
