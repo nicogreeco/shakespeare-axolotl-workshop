@@ -8,7 +8,7 @@ You will use a **Job** for training, which finishes after running the task, and 
 
 ## Every token counts
 
-A language model takes the tokens it has seen so far and predicts the next one. A token can be a word, part of a word, or punctuation. Transformer-based models such as Qwen2.5 generate one token after another; their learned weights encode patterns that let them produce useful answers. The **B** in 7B means *billion* parameters. You can now guess why they are called *large* language models. The family includes [7B](https://huggingface.co/Qwen/Qwen2.5-7B), [14B](https://huggingface.co/Qwen/Qwen2.5-14B), [32B](https://huggingface.co/Qwen/Qwen2.5-32B), [72B](https://huggingface.co/Qwen/Qwen2.5-72B), and other sizes.
+A language model takes the tokens it has seen so far and predicts the next one. A token can be a word, part of a word, or punctuation. Transformer-based models such as Qwen2.5 generate one token after another; their learned weights encode patterns that let them produce useful answers. The **B** in 7B means *billion* parameters. You can now guess why they are called *large* language models. The family includes instruction-tuned variants at [7B](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct), [14B](https://huggingface.co/Qwen/Qwen2.5-14B-Instruct), [32B](https://huggingface.co/Qwen/Qwen2.5-32B-Instruct), [72B](https://huggingface.co/Qwen/Qwen2.5-72B-Instruct), and other sizes. We use the **Instruct** variants because they are trained to follow chat messages
 
 A weight is a number stored as bits, the 0s and 1s in computer memory. Eight bits make one byte. There are different ways to represent numbers with those bits: **FP32** is a 32-bit floating-point format (4 bytes per weight), while **BF16** uses 16 bits (2 bytes). BF16 uses less memory at the cost of numerical precision. We do not need the details of its encoding here, but for a first estimate of the memory required by a model, use:
 
@@ -52,10 +52,10 @@ Use these values for the first endpoint. Give it a name you will recognize, such
 | Bearer-token authentication | Off for this classroom endpoint |
 | Mounted volumes | None |
 
-The image contains vLLM and its dependencies. Its entrypoint command tells it which model to download and how to run the API. The command below uses 14B as an example; replace the value after `--model` with the size you choose:
+The image contains vLLM and its dependencies. Its entrypoint command tells it which model to download and how to run the API. The command below uses the default 14B Instruct model; replace the value after `--model` only if you choose another size:
 
 ```bash
-python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-14B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --host 0.0.0.0 --port 8000
+python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-14B-Instruct --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --host 0.0.0.0 --port 8000
 ```
 
 `--dtype` selects BF16, `--max-model-len` limits the total input and output context, and `--gpu-memory-utilization` sets vLLM's GPU-memory budget. **Use your weight-memory estimate to choose a model before you launch it.** Could it fit with room for the KV cache and serving overhead (assume at least 5 extra GB needed)? Which is the largest size you would try on this GPU? Change `--model`, create the endpoint and wait for it to become ready. Copy its HTTPS URL from **Copy endpoint URL → Public endpoint**. The [Nebius endpoint guide](https://docs.nebius.com/serverless/tutorials/deploy-model) shows this console flow.
@@ -93,11 +93,18 @@ If the datasets are visible in your DevLab, open a `train.jsonl` file and look a
 
 Open [training.yaml](training.yaml). This one YAML file is the starting point for every voice. [Axolotl](https://docs.axolotl.ai/) reads it to load the model and data, train LoRA, and choose checkpoints. Find `base_model`, `datasets`, `test_datasets`, `sequence_len`, `bf16`, and `lora_r`. **What is the longest training sequence this configuration allows? What precision will the job use? What LoRA parameters are used?**
 
-Edit *both* dataset paths to your chosen directory, keeping `train.jsonl` for training and `validation.jsonl` for validation. Set `base_model` to the size you want to train: `Qwen/Qwen2.5-7B`, `Qwen/Qwen2.5-14B`, or `Qwen/Qwen2.5-32B`. If you want to compare with your first endpoint, use the same base model. Otherwise the final endpoint can still compare the adapted model with its own base model. The default 14B model is the balanced choice; 7B is faster, while 32B uses most of the H100's memory and is the ambitious option.
+Edit *both* dataset paths to your chosen directory, keeping `train.jsonl` for training and `validation.jsonl` for validation. The default is `Qwen/Qwen2.5-14B-Instruct`, which is the balanced choice for this workshop. You may instead set `base_model` to `Qwen/Qwen2.5-7B-Instruct` for a faster run or `Qwen/Qwen2.5-32B-Instruct` for the ambitious option that exploit  most of the H100's memory. Use the same exact model ID for the first endpoint, training job, and final endpoint: a LoRA adapter can only be loaded with the base checkpoint on which it was trained. 
 
-The default YAML is tuned for the Cheshire Cat at 14B. For the other characters, keep its training schedule. For Shakespeare, change `learning_rate` to `0.0002`, `max_steps` to `500`, `warmup_steps` to `10`, and `eval_steps` and `save_steps` to `125`. The longer dataset can support a longer run; we use a smaller learning rate and fewer steps for the short character datasets to limit overfitting.
+Use one batch configuration for every run: `micro_batch_size: 8` and `gradient_accumulation_steps: 2`, for an effective batch of 16. Keep `lora_r: 16`. Use the schedule below for the dataset you chose:
 
-Keep `lora_r: 16`, `micro_batch_size: 4`, and `gradient_accumulation_steps: 4` for a first 7B, 14B, or 32B run. A **microbatch** of four means four examples are processed together. Axolotl accumulates gradients from four such microbatches before updating the adapter, so one update sees an **effective batch of 4 × 4 = 16 examples** on our single GPU. This gives a larger effective batch without holding all 16 examples' activations at once. Gradient checkpointing in the YAML saves more memory by recomputing some intermediate values.
+| Dataset | Learning rate | Max steps | Eval/save every | Patience |
+|---|---:|---:|---:|---:|
+| Character roleplay | `0.00005` | 90 | 15 | 1 |
+| Shakespeare | `0.0002` | 375 | 125 | 1 |
+
+ With `load_best_model_at_end: true`, Axolotl saves the checkpoint with the best validation loss. 
+
+A **microbatch** is the number of examples processed together. Axolotl accumulates gradients across two microbatches before updating the adapter. Gradient checkpointing in the YAML saves memory by recomputing some intermediate values.
 
 **What about the training memory for your model?** Build the estimate rather than starting from the formula. For rank 16, assume that the adapter contains roughly **0.5% of the base parameters**, so `A ≈ 0.005 × P`.
 
@@ -114,9 +121,10 @@ LoRA training state (bytes) ≈ ___P + ___A
 
 Write down your reasoning before continuing. You can check your answer in the Solutions section at the end of this practical.
 
-**Estimate this for 14B and 32B, then leave at least another 8 GB for activations, temporary buffers and the runtime. Which would you try on 80 GB?** This is a rough budget: adapter states can use a different precision, and activations depend on sequence length and microbatch. The 32B option is intentionally close to the limit, so a weight-only calculation is not enough.
+**Estimate this for 14B and 32B, then leave at least another 10 GB for activations, temporary buffers and the runtime. Which would you try on 80 GB?** This is a rough budget: optimizer  states can use a higher precision, and activations depend on sequence length and microbatch. 
 
-In a short Qwen2.5-32B test with this configuration, microbatch 4 peaked at 64.99 GiB allocated and 65.99 GiB reserved, so it fit on the 80 GB H100 with useful headroom. Exact use depends on sequence lengths and software versions. If your 32B job runs out of memory, try `micro_batch_size: 2` and `gradient_accumulation_steps: 8`, then `1` and `16`; both keep the effective batch at 16. After that, shorten `sequence_len` or choose 14B. You can also try `lora_r: 8` and `lora_alpha: 16` as a separate experiment. Roughly how would halving rank affect `A` and the *total* memory estimate?
+
+On one H100, 14B is the recommended choice for this 45-minute workshop. 32B can train on a short character dataset, but takes longer and leaves less room for long examples. If a job runs out of memory, lower `micro_batch_size` and raise `gradient_accumulation_steps` to keep the effective batch near 16. You can also try `lora_r: 8` and `lora_alpha: 16` as a separate experiment. Roughly how would halving rank affect `A` and the *total* memory estimate?
 
 ### Start a GPU Job
 
@@ -139,7 +147,7 @@ The 200 GiB container disk is separate from GPU memory. It provides room for the
 Give the entrypoint this command. Choose a short group name and a unique run ID; use a new ID for each training attempt:
 
 ```bash
-bash -c "bash /inputs/releases/v1/run_job.sh /config/axolotl.yaml my-group run-1"
+bash -c "bash /inputs/releases/v2/run_job.sh /config/axolotl.yaml my-group run-1"
 ```
 
 This starts the included `run_job.sh` script with your YAML, group and run ID. Use lowercase letters, numbers and hyphens, with no spaces. It trains with Axolotl, then writes the results to `/outputs/my-group/runs/run-1/`. Choose a group name that identifies your team; the run ID distinguishes this attempt from others in that group. Use a new run ID for each attempt. Click **Create job** and watch the logs. The script prints the output path, and saves `training.log`, loss plots, and a small automatic comparison alongside `adapter/`.
@@ -160,7 +168,7 @@ Finally, find the lines saying where Axolotl saved the model and where the works
 
 Once training has finished, browse **Storage → Object Storage → uu-workshop-output → your group → runs → your run ID**. The run folder contains `loss.svg`, `loss.csv`, `comparison.md`, `training.log`, and an `adapter/` directory. Take a few minutes to inspect the results before deploying anything (you need to download them one by one).
 
-Start with `loss.svg`. Where is the validation loss lowest, and which checkpoint does the plot mark as best? Compare that step with `max_steps` in your YAML and the final step in `training.log`: did the run use the full step budget? This configuration has `early_stopping_patience: 2`, so training can stop after two evaluations without an improvement in validation loss. With `load_best_model_at_end: true`, the adapter saved for you comes from the checkpoint with the best validation loss; it may not be the last step that ran.
+Start with `loss.svg`. Where is the validation loss lowest, and which checkpoint does the plot mark as best? Compare that step with `max_steps` in your YAML and the final step in `training.log`: did the run use the full step budget? The recommended configurations use `early_stopping_patience: 1`, so training can stop after one evaluation without an improvement in validation loss. With `load_best_model_at_end: true`, the adapter saved for you comes from the checkpoint with the best validation loss; it may not be the last step that ran.
 
 Then open `comparison.md`. It shows the base model and the adapter answering the same held-out validation prompts. Do you notice a change in voice or personality? Which example makes the difference clearest? Does the adapted model still respond coherently to the prompt? 
 
@@ -169,7 +177,7 @@ Finally, open `adapter/` and check that `adapter_config.json` and `adapter_model
 Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. This time mount `uu-workshop-output` at `/outputs`. This will make the artifacts from the training job available to the endpoint machine. Use the exact base model and rank from `adapter_config.json`. Replace `my-group` and `run-1` below with the group name and run ID you chose:
 
 ```bash
-python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-14B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules character=/outputs/my-group/runs/run-1/adapter --host 0.0.0.0 --port 8000
+python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-14B-Instruct --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules character=/outputs/my-group/runs/run-1/adapter --host 0.0.0.0 --port 8000
 ```
 
 The model name `character` refers to the adapter, so you can query the fine-tuned model with that name. vLLM can [serve the base model and its LoRA adapter together](https://docs.vllm.ai/en/latest/features/lora/). Reconnect the notebook to this new endpoint. Ask the base model and `character` the same question, then try your own prompts. Does it sound more like your chosen voice? Does it still answer the question? No need to score it: have a look and play.

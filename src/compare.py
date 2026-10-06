@@ -55,6 +55,8 @@ def main() -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
+    if tokenizer.eos_token_id is None:
+        raise ValueError(f"Tokenizer for {model_id} has no EOS token configured")
     model = AutoModelForCausalLM.from_pretrained(
         model_id, dtype=torch.bfloat16, device_map="auto"
     ).eval()
@@ -70,7 +72,8 @@ def main() -> None:
                 **inputs,
                 do_sample=False,
                 max_new_tokens=96,
-                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
             )
         return tokenizer.decode(output[0, inputs["input_ids"].shape[-1] :], skip_special_tokens=True).strip()
 
