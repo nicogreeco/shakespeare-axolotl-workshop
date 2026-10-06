@@ -29,7 +29,7 @@ Training needs more. Besides weights, it keeps **activations**: intermediate res
 
 [![Full parameter fine-tuning compared with LoRA fine-tuning](images/training_memory_profiling_pytorch.webp)](https://pytorch.org/blog/understanding-gpu-memory-1/)
 
-*GPU memory ptofile over several steps of training. Source: [Pytorch Blog](https://pytorch.org/blog/understanding-gpu-memory-1/).*
+*GPU memory ptofile over several steps of training. Here a different optimizer is used (vanilla SGD with momentum), with a single value stored for each weight, as a result the memory requirment for optim is same as parameters.  Source: [Pytorch Blog](https://pytorch.org/blog/understanding-gpu-memory-1/).*
 
 **LoRA** leaves the model’s original weights frozen and learns only a small update for each selected weight matrix. Instead of storing a full-sized update, it represents that update as the product of two smaller matrices (A and B in the image) . Their inner dimension is the **rank** (`lora_r` in our YAML): a lower rank uses less memory but limits how much the model can change. These learned matrices form the **adapter**, so gradients and optimizer states are needed only for them. The full base model must still fit in memory, and the saved adapter must be loaded with the same base model to produce the fine-tuned behaviour. [This LoRA explanation](https://huggingface.co/docs/peft/main/task_guides/lora_based_methods) goes further if you are curious.
 
@@ -88,8 +88,7 @@ Choose a dataset. For a first run, the Cheshire Cat and other character datasets
 | Dorian Gray | `/inputs/datasets/public-domain/dorian-gray/` |
 | Shakespeare dialogue | `/inputs/datasets/shakespeare/` |
 
-If the datasets are visible in your DevLab, open a `train.jsonl` file and look at a couple of lines. What are the input and the answer? Some prompts give away the character or setting; even an untrained base model might pick up that hint. That is fine for this exercise—we are here to try the workflow and see what it does.
-
+If the datasets are visible in your DevLab, open a `train.jsonl` file and look at a couple of lines. What are the input and the answer?
 ### Make your training configuration
 
 Open [training.yaml](training.yaml). This one YAML file is the starting point for every voice. [Axolotl](https://docs.axolotl.ai/) reads it to load the model and data, train LoRA, and choose checkpoints. Find `base_model`, `datasets`, `test_datasets`, `sequence_len`, `bf16`, and `lora_r`. **What is the longest training sequence this configuration allows? What precision will the job use? What LoRA parameters are used?**
@@ -100,14 +99,22 @@ The default YAML is tuned for the Cheshire Cat at 7B. For the other characters, 
 
 Keep `lora_r: 16`, `micro_batch_size: 4`, and `gradient_accumulation_steps: 4` for a first 0.5B or 7B run. A **microbatch** of four means four examples are processed together. Axolotl accumulates gradients from four such microbatches before updating the adapter, so one update sees an **effective batch of 4 × 4 = 16 examples** on our single GPU. This gives a larger effective batch without holding all 16 examples' activations at once. Gradient checkpointing in the YAML saves more memory by recomputing some intermediate values.
 
-**What about the training memory for your model?** Make one more estimate before launching. For rank 16, assume roughly **0.5% of the base parameters** are trainable LoRA parameters: if the base has `N` parameters, then `A ≈ 0.005 × N` adapter parameters. This is a rule of thumb from a 7B run, not a fixed property of LoRA; the percentage changes with model size, architecture and rank, and may be quite different for 0.5B. Write `P ≈ N` for frozen base parameters. Under the same simplified BF16 assumption as before:
+**What about the training memory for your model?** Build the estimate rather than starting from the formula. For rank 16, assume that the adapter contains roughly **0.5% of the base parameters**, so `A ≈ 0.005 × P`.
+
+Ask what must be stored for each type of parameter:
+
+1. The `P` base parameters are frozen. They need one BF16 value each, but no gradients or optimizer states. How many bytes is that per parameter?
+2. Each of the `A` trainable adapter parameters needs its BF16 weight, its gradient, and the two running values maintained by Adam. If we pretend they are all BF16, how many bytes is that per parameter?
+
+Use your answers to complete the estimate:
 
 ```text
-LoRA training state (bytes) ≈ 2P + 8A
-                            ≈ 2N + 8 × (0.005N)
+LoRA training state (bytes) ≈ ___P + ___A
 ```
 
-The `2P` is the frozen base model. The `8A` includes adapter weights, gradients and two Adam arrays. **Estimate this for 7B and 14B, then leave at least another 5 GB for activations, temporary buffers and the runtime. Which would you try on 48 GB?** This is a rough budget, not a promise: adapter states can use a different precision, and activations depend on sequence length and microbatch. [Axolotl's sizing guide](https://docs.axolotl.ai/docs/choosing_method.html) includes 13–14B LoRA runs on a single 48 GB GPU with short contexts and small microbatches.
+Write down your reasoning before continuing. You can check your answer in the Solutions section at the end of this practical.
+
+**Estimate this for 7B and 14B, then leave at least another 5 GB for activations, temporary buffers and the runtime. Which would you try on 48 GB?** This is a rough budget, adapter states can use a different precision, and activations depend on sequence length and microbatch. [Axolotl's sizing guide](https://docs.axolotl.ai/docs/choosing_method.html) includes 13–14B LoRA runs on a single 48 GB GPU with short contexts and small microbatches.
 
 If you try 14B, use `micro_batch_size: 2` and `gradient_accumulation_steps: 8` for the same effective batch of 16; this combination has completed a run with the present configuration. If your job runs out of GPU memory, try `1` and `16`. At a microbatch of one, the next options are a shorter `sequence_len` or a smaller model. A smaller microbatch can make the run slower. You can also try `lora_r: 8` and `lora_alpha: 16` as a separate experiment. Roughly how would halving rank affect `A` and the *total* memory estimate?
 
@@ -125,7 +132,7 @@ In the console, open **Serverless AI → Jobs → Create job**. Choose the **Axo
 | Second mounted volume | `uu-workshop-output` at `/outputs`, read-write |
 | Files | Paste or upload your entire edited YAML at `/config/axolotl.yaml` |
 
-A mounted Object Storage bucket appears as files in the container. For example, `s3://uu-workshop-input/datasets/shakespeare/train.jsonl` becomes `/inputs/datasets/shakespeare/train.jsonl`. The input mount supplies datasets and the runner script; the output mount receives the adapter and run artifacts. In **Files**, paste the YAML from your editor, or download it from JupyterLab and upload it from your computer. See [Nebius's Job guide](https://docs.nebius.com/serverless/jobs/manage) for those controls.
+A mounted Object Storage bucket appears as files in the container. For example, `s3://uu-workshop-input/datasets/shakespeare/train.jsonl` becomes `/inputs/datasets/shakespeare/train.jsonl`. The input mount supplies datasets and the runner script (the same you find here in data/ and scr/); the output mount receives the adapter and run artifacts. In **Files**, paste the YAML from your editor, or download it from JupyterLab and upload it from your computer. See [Nebius's Job guide](https://docs.nebius.com/serverless/jobs/manage) for those controls.
 
 Give the entrypoint this command. Choose a short group name and a unique run ID; use a new ID for each training attempt:
 
@@ -133,7 +140,7 @@ Give the entrypoint this command. Choose a short group name and a unique run ID;
 bash -c "bash /inputs/releases/v1/run_job.sh /config/axolotl.yaml my-group run-1"
 ```
 
-This starts the included `run_job.sh` script with your YAML, group and run ID. Use lowercase letters, numbers and hyphens, with no spaces. It trains with Axolotl, then writes the results to `/outputs/my-group/runs/run-1/`. Choose a group name that identifies your team or experiment; the run ID distinguishes this attempt from others in that group. Use a new run ID for each attempt. Click **Create job** and watch the logs. The script prints the output path, and saves `training.log`, loss plots, and a small automatic comparison alongside `adapter/`.
+This starts the included `run_job.sh` script with your YAML, group and run ID. Use lowercase letters, numbers and hyphens, with no spaces. It trains with Axolotl, then writes the results to `/outputs/my-group/runs/run-1/`. Choose a group name that identifies your team; the run ID distinguishes this attempt from others in that group. Use a new run ID for each attempt. Click **Create job** and watch the logs. The script prints the output path, and saves `training.log`, loss plots, and a small automatic comparison alongside `adapter/`.
 
 While the Job runs, look for a line like this in its logs:
 
@@ -141,38 +148,63 @@ While the Job runs, look for a line like this in its logs:
 trainable params: xxx || all params: xxx || trainable%: xxx
 ```
 
-How many of *your* model's parameters are trainable? What percentage is that? Compare your earlier full-training estimate with `2P + 8A` using your log values (`P = all params − A`). Then find `memory/max_allocated (GiB)` and `memory/device_reserved (GiB)` in the training logs. What is the highest value you can find for each, and why might reserved memory be higher than allocated memory? These are useful readings from the training process; they are more informative here than relying on the console Metrics tab alone. The actual GPU memory can also include activations and runtime overhead that the simple estimate leaves out.
+How many of *your* model's parameters are trainable? What percentage is that? Compare your earlier full-training estimate with `2P + 8A` using your log values (`P = all params − A`). Then find `memory/max_allocated (GiB)` and `memory/device_reserved (GiB)` in the training logs. What is the highest value you can find for each, and how does it compares with the estimate you made? The actual GPU memory can also include activations and runtime overhead that the simple estimate leaves out.
 
-The logs show how the run progresses as well. Find a training `loss` and an `eval_loss` near the start and later in the run. Are they going in the same direction? A falling loss means the model is getting better at the training objective, but it does not by itself prove that the character responses are more convincing. Open `loss.csv` or `loss.svg` in your output if you want to see the trend more clearly.
+The logs show how the run progresses as well. Find a training `loss` and an `eval_loss` near the start and later in the run. Are they going in the same direction? A falling loss means the model is getting better at the training objective, but it does not by itself prove that the character responses are more convincing.
 
 Finally, find the lines saying where Axolotl saved the model and where the workshop runner saved the results. The paths inside the container logs may differ from the final `/outputs/...` path, so follow the runner's final “Results saved to” message to find the run in Object Storage.
 
 ## Put the character on stage
 
-Once training has finished, browse **Storage → Object Storage → uu-workshop-output → your group → runs → your run ID**. The run folder contains `loss.svg`, `loss.csv`, `comparison.md`, `training.log`, and an `adapter/` directory. Take a few minutes to inspect the results before deploying anything.
+Once training has finished, browse **Storage → Object Storage → uu-workshop-output → your group → runs → your run ID**. The run folder contains `loss.svg`, `loss.csv`, `comparison.md`, `training.log`, and an `adapter/` directory. Take a few minutes to inspect the results before deploying anything (you need to download them one bny one).
 
-Start with `loss.svg`. Where is the validation loss lowest, and which checkpoint does the plot mark as best? Compare that step with `max_steps` in your YAML and the final step in `training.log`: did the run use the full step budget? `max_steps` is a limit, not a promise that every run reaches it. This configuration has `early_stopping_patience: 2`, so training can stop after two evaluations without an improvement in validation loss. With `load_best_model_at_end: true`, the adapter saved for you comes from the checkpoint with the best validation loss; it may not be the last step that ran.
+Start with `loss.svg`. Where is the validation loss lowest, and which checkpoint does the plot mark as best? Compare that step with `max_steps` in your YAML and the final step in `training.log`: did the run use the full step budget? This configuration has `early_stopping_patience: 2`, so training can stop after two evaluations without an improvement in validation loss. With `load_best_model_at_end: true`, the adapter saved for you comes from the checkpoint with the best validation loss; it may not be the last step that ran.
 
-Then open `comparison.md`. It shows the base model and the adapter answering the same held-out validation prompts. Do you notice a change in voice or personality? Which example makes the difference clearest? Does the adapted model still respond coherently to the prompt? The comparison is a small qualitative snapshot, not a guarantee that the character voice will appear in every answer.
+Then open `comparison.md`. It shows the base model and the adapter answering the same held-out validation prompts. Do you notice a change in voice or personality? Which example makes the difference clearest? Does the adapted model still respond coherently to the prompt? 
 
 Finally, open `adapter/` and check that `adapter_config.json` and `adapter_model.safetensors` are present. `adapter_config.json` records the exact base model and LoRA rank. You will use this adapter folder's path when you configure the next endpoint.
 
-Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. Mount `uu-workshop-output` at `/outputs` **read-only**. Use the exact base model and rank from `adapter_config.json`. Replace `my-group` and `run-1` below with the group name and run ID you chose:
+Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. This time mount `uu-workshop-output` at `/outputs`. This will make the artifacts from the training job available to the endpoint machine. Use the exact base model and rank from `adapter_config.json`. Replace `my-group` and `run-1` below with the group name and run ID you chose:
 
 ```bash
 python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-7B --dtype bfloat16 --max-model-len 2048 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 16 --lora-modules character=/outputs/my-group/runs/run-1/adapter --host 0.0.0.0 --port 8000
 ```
 
-The model name `character` refers to the adapter, whether you chose a character or Shakespeare. vLLM can [serve the base model and its LoRA adapter together](https://docs.vllm.ai/en/latest/features/lora/). Reconnect the notebook to this endpoint. Ask the base model and `character` the same question, then try your own prompts. Does it sound more like your chosen voice? Does it still answer the question? No need to score it: have a look and play.
+The model name `character` refers to the adapter, you will be able to quiery the fine-tuned model with that model name. vLLM can [serve the base model and its LoRA adapter together](https://docs.vllm.ai/en/latest/features/lora/). Reconnect the notebook to this new endpoint. Ask the base model and `character` the same question, then try your own prompts. Does it sound more like your chosen voice? Does it still answer the question? No need to score it: have a look and play.
 
 When you are done, stop the endpoints in the console so they no longer reserve a GPU. Your training outputs remain in Object Storage.
 
 ## One more voice: Nebius Token Factory
 
-Your LoRA adapter is one way to get a model to speak in a particular style. Now try a different route with **Nebius Token Factory**, a hosted API that gives you access to larger models without deploying them on your L40S. A model trained on broad collections of text may already know something about Shakespeare or familiar literary characters. A **system message** can ask it to adopt a voice; that is a prompt-time instruction, not fine-tuning. It may produce a convincing style, though it will not necessarily know every detail or stay in character.
+Your LoRA adapter changes a model’s behaviour by learning new weights. Now try a different approach with **Nebius Token Factory**, a hosted API that provides access to larger models without deploying them on your L40S. These models may already know how Shakespeare or familiar literary characters speak, so we can steer them using a **system prompt** instead of fine-tuning them.
 
-Token Factory uses the same OpenAI-compatible chat format as vLLM. The client setup changes: use the Token Factory API address and an API key. The request still contains a model name and a list of messages. In that list, `system` gives the model its role and style, while `user` provides the question. See the [Token Factory quickstart](https://docs.tokenfactory.nebius.com/quickstart).
+A system prompt is simply part of the text given to the model before the user’s question. Chat models are trained to treat it as a high-priority instruction, so it influences which words the model is likely to generate—for example, encouraging a Victorian tone or Shakespearean language. It does not change the model’s weights, must be sent again with each new conversation, and different models may follow it with different levels of consistency.
 
-When you have the class API key, run the final Token Factory cells in `lab.ipynb`. The key is requested with hidden input and is not written into the cell. Select an available large model from the list shown by the notebook. Try either a character prompt, such as “You are Sherlock Holmes: answer with precise, observant reasoning and a restrained Victorian voice,” or a Shakespeare prompt, such as “Speak as a character in a Shakespeare play, using Early Modern English.” Then ask the same question you asked your fine-tuned model.
+Token Factory uses the same OpenAI-compatible chat format as vLLM. Only the client configuration changes: you use the Token Factory API address and a class API key. Each request still specifies a model and a list of messages, where `system` defines the role and style and `user` supplies the question. See the [Token Factory quickstart](https://docs.tokenfactory.nebius.com/quickstart) if you want to learn more.
 
-How close does the prompt-only answer get to the character or play style? What does the adapter add, if anything? You are comparing two ways to shape an answer: learned adapter weights and instructions in a system message. The results may vary by model and prompt.
+Run the final Token Factory cells in `lab.ipynb`. The notebook requests the API key using hidden input, lists the available models, and lets you select one. Choose a character system prompt and ask the same question you gave your fine-tuned model.
+
+How close does the prompt-only answer come to the desired style? What does the LoRA adapter add, if anything? You are comparing two ways of shaping a model’s output: learning adapter weights during training and providing instructions at generation time.
+
+
+### LoRA training-memory estimate
+
+BF16 uses 2 bytes per value. Because the base model is frozen, its `P` parameters require only their stored weights:
+
+```text
+Base-model weights = 2P bytes
+```
+
+Each trainable adapter parameter needs four values: its weight, its gradient, and the two running values maintained by Adam. Under our simplified assumption that all four use BF16:
+
+```text
+Adapter training state = 4 × 2A = 8A bytes
+```
+
+Therefore:
+
+```text
+LoRA training state ≈ 2P + 8A bytes
+```
+
+Real Adam states may use FP32, so this estimate can be optimistic.
