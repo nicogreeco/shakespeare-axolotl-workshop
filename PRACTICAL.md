@@ -27,6 +27,14 @@ The containers already have the serving or training software installed. You do n
 Questions you need to answer are marked **❓ Q1–Q15**.
 Answers to the calculation in Q8 are in [Solutions](#solutions) at the end.
 
+### Choose your workshop name
+
+Before you start, choose a **group name** for your team, or a username if you are working alone.
+Everyone shares the same project, so make it specific enough that another participant is unlikely to choose it: `utrecht-holmes-3` is better than `team1`.
+Use lowercase letters, numbers and hyphens, with no spaces.
+
+Keep this name throughout the practical. Include it in your Job and Endpoint names so you can find them in the console. Training results will be saved under `uu-workshop-output/<group-name>/runs/<run-id>/`; give each training attempt a different run ID. Write down your group name and run IDs so you can find your results later.
+
 ## Every token counts
 
 ### Tokens and parameters
@@ -166,7 +174,7 @@ Later, it will also let us select the base model or its LoRA adapter by model na
 
 | Console field | Value |
 |---|---|
-| Name | Give it a name you will recognize, such as `my-base-model` or your group name |
+| Name | Include your group name, for example `utrecht-holmes-3-base` |
 | Image path | `docker.io/vllm/vllm-openai:latest` |
 | Port | `8000` (HTTP) |
 | Entrypoint command | Leave it empty for now: we'll fill it in at the end |
@@ -287,8 +295,8 @@ Each line is one conversation.
 The user message supplies the context, and we train the model to predict the assistant response.
 In the YAML, this is expressed by `roles_to_train: [assistant]` and `train_on_inputs: false`.
 
-Choose a dataset.
-For a first run, the Cheshire Cat and other character datasets are short; Shakespeare is larger.
+For this 45-minute workshop, choose one of the character datasets, such as the Cheshire Cat or Dorian Gray.
+Shakespeare takes significantly longer to train, so it is not recommended for the hands-on session.
 
 | Voice | Directory inside the Job |
 |---|---|
@@ -332,7 +340,7 @@ Now edit the YAML:
 | Dataset | Learning rate | Max steps | Eval/save every | Patience |
 |---|---:|---:|---:|---:|
 | Character roleplay | `0.00005` | 90 | 15 | 1 |
-| Shakespeare | `0.0002` | 375 | 125 | 1 |
+| Shakespeare (optional) | `0.0002` | 250 | 125 | 1 |
 
 > [!IMPORTANT]
 > A LoRA adapter can only be loaded with the base checkpoint on which it was trained.
@@ -389,7 +397,7 @@ You can also try `lora_r: 8` and `lora_alpha: 16` as a separate experiment.
 
 | Console field | Value |
 |---|---|
-| Name | Something recognizable, such as `cheshire-training` |
+| Name | Include your group name and run ID, for example `utrecht-holmes-3-run-1` |
 | Image path | `docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1` |
 | Compute, disk, network | H100, 1 GPU / 16 vCPUs / 200 GiB RAM, 200 GiB disk, your project's default subnet |
 | Timeout | 2 hours |
@@ -414,9 +422,9 @@ You can paste the YAML from your editor, or download it from JupyterLab and uplo
 It holds the container image, the downloaded model shards, and the Hugging Face cache.
 100 GiB is not enough for the 32B option in this setup.
 
-4. Choose a short **group name** for your team and a unique **run ID** for this attempt.
-   Use lowercase letters, numbers and hyphens, with no spaces.
-5. Give the entrypoint this command, with your group name and run ID:
+4. Use the group name you chose at the start and choose a new **run ID** for this attempt.
+   Include both in the Job name so you can recognize the run in the shared project.
+5. Give the entrypoint this command, replacing `my-group` and `run-1` with those values:
 
    ```bash
    bash -c "bash /inputs/releases/v2/run_job.sh /config/axolotl.yaml my-group run-1"
@@ -424,7 +432,7 @@ It holds the container image, the downloaded model shards, and the Hugging Face 
 
 6. Click **Create job** and watch the logs.
 
-The `run_job.sh` script trains with Axolotl, then writes the results to `/outputs/my-group/runs/run-1/`.
+The `run_job.sh` script trains with Axolotl, then writes the results to `/outputs/<group-name>/runs/<run-id>/` in the shared `uu-workshop-output` bucket.
 It prints the output path and saves `training.log`, loss plots, and a small automatic comparison alongside `adapter/`.
 
 > [!IMPORTANT]
@@ -465,7 +473,8 @@ Follow the runner's final "Results saved to" message to find the run in Object S
 
 ### Inspect the results
 
-Once training has finished, browse **Storage → Object Storage → uu-workshop-output → your group → runs → your run ID**.
+Once training has finished, browse **Storage → Object Storage → uu-workshop-output → your group name → runs → your run ID**.
+This group folder keeps your team's experiments separate from everyone else's in the shared bucket.
 The run folder contains:
 
 - `loss.svg` and `loss.csv`
@@ -504,7 +513,7 @@ You will use this folder's path in the next endpoint.
 
 ### Serve the adapter
 
-1. Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before.
+1. Create another **Custom endpoint** with the same image, port, GPU, disk and network settings as before. Include your group name in its name, for example `utrecht-holmes-3-character`.
 2. This time, mount `uu-workshop-output` at `/outputs`.
    This makes the training job's artifacts available to the endpoint machine.
 3. Use the entrypoint below, with:
