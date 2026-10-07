@@ -27,13 +27,41 @@ The containers already have the serving or training software installed. You do n
 Questions you need to answer are marked **❓ Q1–Q15**.
 Answers to the calculation in Q8 are in [Solutions](#solutions) at the end.
 
+## Before you start
+
 ### Choose your workshop name
 
 Before you start, choose a **group name** for your team, or a username if you are working alone.
-Everyone shares the same project, so make it specific enough that another participant is unlikely to choose it: `utrecht-holmes-3` is better than `team1`.
+Everyone shares the same project, so make it specific enough that another participant is unlikely to choose it.
 Use lowercase letters, numbers and hyphens, with no spaces.
 
 Keep this name throughout the practical. Include it in your Job and Endpoint names so you can find them in the console. Training results will be saved under `uu-workshop-output/<group-name>/runs/<run-id>/`; give each training attempt a different run ID. Write down your group name and run IDs so you can find your results later.
+
+### Set up your DevLab
+
+Do the practical in a Nebius DevLab, so you do not need to install anything on your own computer.
+
+1. Open the [workshop project in the Nebius console](https://console.nebius.com/project-e00kjyj0pr00mf5kcczh6n).
+2. Go to **Serverless AI → DevLab → JupyterLab → Create DevLab**. Select the **JupyterLab** template, give the DevLab a name that includes your group name so you can find it among your classmates' DevLabs, and choose **Without GPUs**. Keep the other defaults; you do not need to mount volumes or upload files.
+3. **Save the Jupyter token** shown on the Create DevLab page. You will need it to open JupyterLab. Keep it private.
+
+   ![JupyterLab template and Jupyter token on the Create DevLab page](images/jupiter.png)
+
+4. Create the DevLab. It may take a few minutes to become available. Continue with [Every token counts](#every-token-counts) while it starts; return to step 5 when it is ready. You can also start creating the first Endpoint before the DevLab is ready.
+5. When the DevLab shows **RUNNING**, click its name in the DevLab list. Under **Endpoint URL**, copy the **Public endpoint** URL and open it in a new browser tab.
+6. On the Jupyter login page, paste the token you saved in step 3 into **Password or token** and click **Log in**. You can ignore the other options on that page.
+
+   ![Jupyter login page with the Password or token field](images/jupiter_token.png)
+
+7. In JupyterLab, open a **Terminal** and run:
+
+   ```bash
+   git clone https://github.com/nicogreeco/shakespeare-axolotl-workshop.git
+   cd shakespeare-axolotl-workshop
+   python -m pip install -r requirements.txt
+   ```
+
+The terminal already has its Python environment active, so you do not need to create a virtual environment. The requirements install only the OpenAI Python SDK used by the notebook; training runs later in a separate Axolotl Job. In JupyterLab, edit `training.yaml`, and run `lab.ipynb` when prompted. If you installed the requirements in the terminal, you can skip the notebook's first `%pip install` cell.
 
 ## Every token counts
 
@@ -166,9 +194,11 @@ Inside our container, [vLLM](https://docs.vllm.ai/en/latest/serving/openai_compa
 
 Later, it will also let us select the base model or its LoRA adapter by model name.
 
+Your DevLab may be ready by now. If it is, finish its terminal setup. If not, go ahead and create this Endpoint while the DevLab starts; you will need the DevLab when you reach the notebook.
+
 ### Create an endpoint
 
-1. Open the [Nebius console](https://console.nebius.com/project-e00g9y57pr00t8s9xm0nmm).
+1. Open the [Nebius console](https://console.nebius.com/project-e00kjyj0pr00mf5kcczh6n).
 2. Go to **Serverless AI → Endpoints → Create endpoint** and choose **Custom**.
 3. Fill in the fields:
 
@@ -195,7 +225,7 @@ Its **entrypoint command** tells it which model to download and how to run the A
 > Could it fit with room for the KV cache and serving overhead? Assume at least 5 GB extra.
 > Which is the largest size you would try on this GPU?
 
-Put your chosen model after `--model` in the command below.
+The largest model that fits is not necessarily the best choice for a 45-minute workshop. Use **Qwen2.5-14B-Instruct** (or 7B for a faster run) rather than 32B: downloading the larger weights and training the larger model take more time. Keep the same model ID for this Endpoint, the training Job, and the final Endpoint. Put it after `--model` in the command below.
 
 > **📘 Example** — the command for the 14B model:
 >
@@ -216,7 +246,7 @@ Where:
 - `--gpu-memory-utilization` sets vLLM's GPU-memory budget.
 
 4. Paste the command into **Entrypoint command**.
-5. Create the endpoint and wait for it to become ready.
+5. Create the Endpoint. While it starts, finish setting up your DevLab if needed. Continue once both are ready.
 
 ### Get the endpoint URL
 
@@ -225,7 +255,7 @@ The [Nebius endpoint guide](https://docs.nebius.com/serverless/tutorials/deploy-
 
 ## Play with the model
 
-Open [the notebook](lab.ipynb), paste the URL, and play with its ready-made questions (Sections 1 and 2).
+Open [the notebook](lab.ipynb) in your DevLab's JupyterLab, paste the Endpoint URL, and play with its ready-made questions (Sections 1 and 2).
 
 ### Look at memory usage in the logs
 
